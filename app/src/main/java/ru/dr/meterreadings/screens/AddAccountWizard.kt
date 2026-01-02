@@ -34,7 +34,7 @@ import ru.dr.meterreadings.models.ui.ProviderUiModel
  * 3. Загрузка данных + подтверждение
  */
 @Composable
-fun AddAccountWizard(
+            fun AddAccountWizard(
     profile: ProfileDomainModel,
     onAccountAdded: (AccountDomainModel) -> Unit,   // callback при успехе
     onCancel: () -> Unit                 // закрыть wizard
@@ -110,7 +110,7 @@ fun AddAccountWizard(
 
                     // Список компаний
                     items(filteredProviders) { provider ->
-                        ProviderCard(
+                        Provid  erCard(
                             provider = provider,
                             isSelected = false,  // позже добавим выбор
                             onClick = {
@@ -215,11 +215,13 @@ fun AddAccountWizard(
                     3 -> {
                         // TODO: Загрузить данные с API
                         val newAccount = AccountUiModel(
-                            id = System.currentTimeMillis().toString(),
-                            profileId = profile.id,
-                            providerId = "mosvodokanal",
-                            accountNumber = accountNumber,
-                            address = "ул. Ленина, д. 5, кв. 12"
+                            account=AccountDomainModel(
+                                id = System.currentTimeMillis().toString(),
+                                profileId = profile.id,
+                                providerId = "mosvodokanal",
+                                accountNumber = accountNumber,
+                                address = "ул. Ленина, д. 5, кв. 12"
+                            )
                         )
                         onAccountAdded(newAccount)
                         onCancel()

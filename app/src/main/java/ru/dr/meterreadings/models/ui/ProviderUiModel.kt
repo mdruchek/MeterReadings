@@ -1,8 +1,7 @@
 package ru.dr.meterreadings.models.ui
 
+import ru.dr.meterreadings.models.domain.ProviderDomainModel
+
 data class ProviderUiModel(
-    val id: String,
-    val name: String,
-    val type: String,
-    val logoURL: String
+    provider: ProviderDomaneModel
 )

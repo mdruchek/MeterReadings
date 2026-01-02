@@ -6,7 +6,7 @@ data class ProviderDomainModel(
     val type: String,
     val logoUrl: String? = null,   // URL
     val baseUrl: String,
-    val authType6: AuthType
+    val authType: AuthType
 )
 
 enum class AuthType {
