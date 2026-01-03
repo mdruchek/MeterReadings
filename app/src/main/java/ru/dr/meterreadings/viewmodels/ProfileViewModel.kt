@@ -5,24 +5,46 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import ru.dr.meterreadings.models.ui.ProfileUiModel // ← Импорт UI модели
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
 import javax.inject.Inject
 
 @HiltViewModel
-class ProfileViewModel @Inject constructor() : ViewModel() {
+class ProfileViewModel @Inject constructor(
+    // private val repository: ProfileRepository - добавим позже
+) : ViewModel() {
 
-    private val _profile = MutableStateFlow<ProfileDomainModel?>(null)
-    val profile: StateFlow<ProfileDomainModel?> = _profile.asStateFlow()
+    // Храним UI модель (не Domain!)
+    private val _profile = MutableStateFlow<ProfileUiModel?>(null)
+    val profile: StateFlow<ProfileUiModel?> = _profile
 
+    /**
+     * Загружает профиль по ID и преобразует в UI модель
+     */
     fun loadProfile(profileId: String) {
         viewModelScope.launch {
-            // TODO: реальная загрузка из репозитория
-            _profile.value = ProfileDomainModel(
+            // TODO: Получить из репозитория
+            // val domainModel = repository.getProfile(profileId)
+
+            // Моковые данные (временно)
+            val domainModel = ProfileDomainModel(
                 id = profileId,
-                name = "Профиль #$profileId"
+                name = "Моя недвижимость",
+                icon = "🏠",
+                isDefault = true
             )
+
+            // Преобразуем Domain → UI
+            val uiModel = ProfileUiModel(
+                profile = domainModel,
+                accountCount = 3,    // TODO: Посчитать из БД
+                addressCount = 2,    // TODO: Посчитать из БД
+                readingsCount = 12,  // TODO: Посчитать из БД
+                lastUpdateDate = "03.01.2026" // TODO: Форматировать реальную дату
+            )
+
+            _profile.value = uiModel
         }
     }
 }
