@@ -8,11 +8,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
-import dagger.hilt.android.AndroidEntryPoint  // ← HILT!
+
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
 import ru.dr.meterreadings.viewmodels.ProfileViewModel
 
@@ -26,7 +27,7 @@ import ru.dr.meterreadings.viewmodels.ProfileViewModel
  * - Кнопку "Добавить компанию"
  * - Кнопку "Передать все показания"
  */
-@AndroidEntryPoint
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileDetailScreen(

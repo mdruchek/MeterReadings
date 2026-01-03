@@ -21,10 +21,7 @@ class ProfileViewModel @Inject constructor() : ViewModel() {
             // TODO: реальная загрузка из репозитория
             _profile.value = ProfileDomainModel(
                 id = profileId,
-                name = "Профиль #$profileId",
-                addressesCount = 3,
-                companiesCount = 5,
-                readingsCount = 12
+                name = "Профиль #$profileId"
             )
         }
     }

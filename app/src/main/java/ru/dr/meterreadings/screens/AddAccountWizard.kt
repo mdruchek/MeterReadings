@@ -2,10 +2,12 @@
 
 package ru.dr.meterreadings.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -15,13 +17,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.background
+import ru.dr.meterreadings.models.domain.AuthType
 import ru.dr.meterreadings.models.domain.AccountDomainModel
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
+import ru.dr.meterreadings.models.domain.ProviderDomainModel
 import ru.dr.meterreadings.models.ui.AccountUiModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
 
@@ -34,9 +36,9 @@ import ru.dr.meterreadings.models.ui.ProviderUiModel
  * 3. Загрузка данных + подтверждение
  */
 @Composable
-            fun AddAccountWizard(
+fun AddAccountWizard(
     profile: ProfileDomainModel,
-    onAccountAdded: (AccountDomainModel) -> Unit,   // callback при успехе
+    onAccountAdded: (AccountUiModel) -> Unit,   // callback при успехе
     onCancel: () -> Unit                 // закрыть wizard
 ) {
     // =====================================================
@@ -49,17 +51,40 @@ import ru.dr.meterreadings.models.ui.ProviderUiModel
     // Тестовые компании (позже из БД/config)
     val allProviders = remember {
         listOf(
-            ProviderUiModel("mosvodokanal", "🏠 Мосводоканал", "Вода", ""),
-            ProviderUiModel("mosenergosbyt", "⚡ Мосэнергосбыт", "Электричество", ""),
-            ProviderUiModel("mosoblgaz", "🔥 Мособлгаз", "Газ", ""),
-            ProviderUiModel("podmoskovye", "🌡️ Подмосковная электросеть", "Электричество","")
+            ProviderUiModel(
+                ProviderDomainModel(
+                    id =" mosvodokanal",
+                    name = "🏠 Мосводоканал",
+                    type = "Вода",
+                    baseUrl = "https://mosvodokanal.me/",
+                    authType = AuthType.API_KEY
+                )
+            ),
+            ProviderUiModel(
+                ProviderDomainModel(
+                    id ="mosenergosby",
+                    name = "⚡ Мосэнергосбыт",
+                    type = "Электричество",
+                    baseUrl = "https://mosenergosby.me/",
+                    authType = AuthType.API_KEY
+                )
+            ),
+            ProviderUiModel(
+                ProviderDomainModel(
+                    id ="mosoblgaz",
+                    name = "🔥 Мособлгаз",
+                    type = "Газ",
+                    baseUrl = "https://mosoblgaz.me/",
+                    authType = AuthType.API_KEY
+                )
+            )
         )
     }
 
     // Фильтрация по поиску
     val filteredProviders = allProviders.filter { provider ->
-        provider.name.contains(searchQuery, ignoreCase = true) ||
-                provider.type.contains(searchQuery, ignoreCase = true)
+        provider.provider.name.contains(searchQuery, ignoreCase = true) ||
+                provider.provider.type.contains(searchQuery, ignoreCase = true)
     }
 
     Scaffold(
@@ -110,7 +135,7 @@ import ru.dr.meterreadings.models.ui.ProviderUiModel
 
                     // Список компаний
                     items(filteredProviders) { provider ->
-                        Provid  erCard(
+                        ProviderCard(
                             provider = provider,
                             isSelected = false,  // позже добавим выбор
                             onClick = {
@@ -219,9 +244,9 @@ import ru.dr.meterreadings.models.ui.ProviderUiModel
                                 id = System.currentTimeMillis().toString(),
                                 profileId = profile.id,
                                 providerId = "mosvodokanal",
-                                accountNumber = accountNumber,
-                                address = "ул. Ленина, д. 5, кв. 12"
-                            )
+                                accountNumber = accountNumber
+                            ),
+                            address = "ул. Ленина, д. 5, кв. 12"
                         )
                         onAccountAdded(newAccount)
                         onCancel()
@@ -258,17 +283,17 @@ fun ProviderCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = provider.logoURL,
+                text = "http://",
                 style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.padding(end = 12.dp)
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = provider.name,
+                    text = provider.provider.name,
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = provider.type,
+                    text = provider.provider.type,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

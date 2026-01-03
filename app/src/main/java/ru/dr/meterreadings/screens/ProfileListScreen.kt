@@ -67,10 +67,12 @@ fun ProfileListScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
-                    navController.navigate("add_account/${profile.id}")
+                    showDialog = true  // ← Открываем диалог создания профиля
+                    //navController.navigate("add_account/${profile.id}")
                 }
             ) {
-                Icon(Icons.Default.Add, contentDescription = null)
+                Icon(Icons.Default.Add, contentDescription = "Добавить профиль")
+                //Icon(Icons.Default.Add, contentDescription = null)
             }
         }
     ) { paddingValues ->
@@ -90,7 +92,12 @@ fun ProfileListScreen(
             // items() - стандартный способ отображения списка
             // Для каждого элемента из profiles вызывается ProfileCard
             items(profiles) { profile ->
-                ProfileCard(profile = profile)
+                ProfileCard(
+                    profile = profile,
+                    onClick = {
+                        navController.navigate("profile/${profile.id}")
+                    }
+                )
             }
         }
 
@@ -121,10 +128,17 @@ fun ProfileListScreen(
  * Card - Material Design карточка с тенью и скругленными углами
  */
 @Composable
-fun ProfileCard(profile: ProfileDomainModel) {
+fun ProfileCard(
+    profile: ProfileDomainModel,
+    onClick: (() -> Unit)? = null
+) {
     Card(
         // Занимает всю ширину доступного пространства
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = onClick != null) {
+                onClick?.invoke()  // ← Безопасный вызов
+            },
         // Тень карточки (elevation)
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
