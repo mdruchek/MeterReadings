@@ -27,33 +27,21 @@ import ru.dr.meterreadings.models.domain.ProviderDomainModel
 import ru.dr.meterreadings.models.ui.AccountUiModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
 
-/**
- * Пошаговый мастер добавления компании (лицевого счета)
- *
- * Шаги:
- * 1. Выбор компании из списка
- * 2. Ввод лицевого счета
- * 3. Загрузка данных + подтверждение
- */
 @Composable
 fun AddAccountWizard(
     profile: ProfileDomainModel,
-    onAccountAdded: (AccountUiModel) -> Unit,   // callback при успехе
-    onCancel: () -> Unit                 // закрыть wizard
+    onAccountAdded: (AccountUiModel) -> Unit,
+    onCancel: () -> Unit
 ) {
-    // =====================================================
-    // STATE - состояние wizard
-    // =====================================================
-    var currentStep by remember { mutableStateOf(1) }  // 1,2,3
+    var currentStep by remember { mutableStateOf(1) }
     var searchQuery by remember { mutableStateOf("") }
     var accountNumber by remember { mutableStateOf("") }
 
-    // Тестовые компании (позже из БД/config)
     val allProviders = remember {
         listOf(
             ProviderUiModel(
                 ProviderDomainModel(
-                    id =" mosvodokanal",
+                    id = "mosvodokanal",
                     name = "🏠 Мосводоканал",
                     type = "Вода",
                     baseUrl = "https://mosvodokanal.me/",
@@ -62,7 +50,7 @@ fun AddAccountWizard(
             ),
             ProviderUiModel(
                 ProviderDomainModel(
-                    id ="mosenergosby",
+                    id = "mosenergosby",
                     name = "⚡ Мосэнергосбыт",
                     type = "Электричество",
                     baseUrl = "https://mosenergosby.me/",
@@ -71,7 +59,7 @@ fun AddAccountWizard(
             ),
             ProviderUiModel(
                 ProviderDomainModel(
-                    id ="mosoblgaz",
+                    id = "mosoblgaz",
                     name = "🔥 Мособлгаз",
                     type = "Газ",
                     baseUrl = "https://mosoblgaz.me/",
@@ -81,7 +69,6 @@ fun AddAccountWizard(
         )
     }
 
-    // Фильтрация по поиску
     val filteredProviders = allProviders.filter { provider ->
         provider.provider.name.contains(searchQuery, ignoreCase = true) ||
                 provider.provider.type.contains(searchQuery, ignoreCase = true)
@@ -106,22 +93,46 @@ fun AddAccountWizard(
                     }
                 }
             )
+        },
+        // ← ВОТ СЮДА переносим bottomBar!
+        bottomBar = {
+            BottomNavigationBar(
+                currentStep = currentStep,
+                totalSteps = 3,
+                canGoBack = currentStep > 1,
+                accountNumberValid = accountNumber.isNotBlank(),
+                onNext = {
+                    when(currentStep) {
+                        1 -> currentStep = 2
+                        2 -> if (accountNumber.isNotBlank()) currentStep = 3
+                        3 -> {
+                            val newAccount = AccountUiModel(
+                                account = AccountDomainModel(
+                                    id = System.currentTimeMillis().toString(),
+                                    profileId = profile.id,
+                                    providerId = "mosvodokanal",
+                                    accountNumber = accountNumber
+                                ),
+                                address = "ул. Ленина, д. 5, кв. 12"
+                            )
+                            onAccountAdded(newAccount)
+                        }
+                    }
+                },
+                onBack = { if (currentStep > 1) currentStep-- }
+            )
         }
     ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(paddingValues)  // ← Это важно!
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             when(currentStep) {
-                // =====================================================
-                // ШАГ 1: ВЫБОР КОМПАНИИ
-                // =====================================================
                 1 -> {
                     item {
-                        // Поиск
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
@@ -133,28 +144,22 @@ fun AddAccountWizard(
                         Spacer(Modifier.height(16.dp))
                     }
 
-                    // Список компаний
                     items(filteredProviders) { provider ->
                         ProviderCard(
                             provider = provider,
-                            isSelected = false,  // позже добавим выбор
+                            isSelected = false,
                             onClick = {
-                                // TODO: Сохранить выбор и перейти к шагу 2
                                 currentStep = 2
                             }
                         )
                     }
                 }
 
-                // =====================================================
-                // ШАГ 2: ЛИЦЕВОЙ СЧЕТ
-                // =====================================================
                 2 -> {
                     item {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            // TODO: Показать выбранную компанию
                             Text(
-                                text = "🏠 Мосводоканал",  // из шага 1
+                                text = "🏠 Мосводоканал",
                                 style = MaterialTheme.typography.titleLarge
                             )
                             Spacer(Modifier.height(8.dp))
@@ -182,9 +187,6 @@ fun AddAccountWizard(
                     }
                 }
 
-                // =====================================================
-                // ШАГ 3: ПОДТВЕРЖДЕНИЕ
-                // =====================================================
                 3 -> {
                     item {
                         Card(
@@ -226,41 +228,9 @@ fun AddAccountWizard(
                 }
             }
         }
-
-        // Нижняя панель с кнопками навигации
-        BottomNavigationBar(
-            currentStep = currentStep,
-            totalSteps = 3,
-            canGoBack = currentStep > 1,
-            accountNumberValid = accountNumber.isNotBlank(),
-            onNext = {
-                when(currentStep) {
-                    1 -> currentStep = 2
-                    2 -> if (accountNumber.isNotBlank()) currentStep = 3
-                    3 -> {
-                        // TODO: Загрузить данные с API
-                        val newAccount = AccountUiModel(
-                            account=AccountDomainModel(
-                                id = System.currentTimeMillis().toString(),
-                                profileId = profile.id,
-                                providerId = "mosvodokanal",
-                                accountNumber = accountNumber
-                            ),
-                            address = "ул. Ленина, д. 5, кв. 12"
-                        )
-                        onAccountAdded(newAccount)
-                        onCancel()
-                    }
-                }
-            },
-            onBack = { if (currentStep > 1) currentStep-- }
-        )
     }
 }
 
-/**
- * Карточка провайдера (компании)
- */
 @Composable
 fun ProviderCard(
     provider: ProviderUiModel,
@@ -302,9 +272,6 @@ fun ProviderCard(
     }
 }
 
-/**
- * Нижняя панель с кнопками и прогрессом
- */
 @Composable
 fun BottomNavigationBar(
     currentStep: Int,
@@ -330,6 +297,8 @@ fun BottomNavigationBar(
                 TextButton(onClick = onBack) {
                     Text("Назад")
                 }
+            } else {
+                Spacer(Modifier.width(48.dp))  // ← Чтобы выравнивание не прыгало
             }
 
             // Прогресс шагов

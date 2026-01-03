@@ -82,10 +82,11 @@ fun MeterReadingsApp() {
                 AddAccountWizard(
                     profile = loadedProfile.profile,  // Передаем ProfileDomainModel
                     onAccountAdded = { newAccount ->
-                        // Callback при добавлении аккаунта
                         // TODO: Сохранить аккаунт через ViewModel/Repository
                         println("✅ Добавлен аккаунт: ${newAccount.account.accountNumber}")
-                        navController.navigateUp()  // Вернуться на ProfileDetailScreen
+
+                        // Просто возвращаемся назад на ProfileDetailScreen
+                        navController.popBackStack()
                     },
                     onCancel = {
                         // Callback при отмене
