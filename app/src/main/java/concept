@@ -1,0 +1,38 @@
+// === 1. ИММУТАБЕЛЬНОСТЬ ===
+val x = 10      // val - неизменяемая переменная (как final в Java)
+var y = 20      // var - изменяемая переменная
+
+// === 2. NULL БЕЗОПАСНОСТЬ ===
+val name: String? = null  // ? означает "может быть null"
+name?.length              // Безопасный вызов (вернет null, если name = null)
+name!!.length             // Принудительный вызов (крашнется, если name = null)
+
+// === 3. ЛЯМБДЫ ===
+val onClick: () -> Unit = { println("Clicked!") } // Функция без параметров
+val onItemClick: (String) -> Unit = { id -> println(id) } // С параметром
+
+// === 4. СТРОКОВЫЕ ШАБЛОНЫ ===
+val count = 5
+val text = "У вас $count счетов"        // Простая интерполяция
+val text2 = "Размер: ${list.size}"      // Выражение в {}
+
+// === 5. WHEN (SWITCH) ===
+when (type) {
+    "A" -> print("Type A")
+    "B" -> print("Type B")
+    else -> print("Unknown")
+}
+
+// === 6. КОЛЛЕКЦИИ ===
+val list = listOf(1, 2, 3)              // Неизменяемый список
+val map = mapOf("key" to "value")       // Словарь
+list.filter { it > 1 }                  // Фильтрация
+list.map { it * 2 }                     // Преобразование
+list.groupBy { it % 2 }                 // Группировка
+
+// === 7. COMPOSE ===
+@Composable                              // Аннотация для UI-функций
+fun MyScreen() {
+    remember { mutableStateOf(0) }       // Сохранение состояния
+    LaunchedEffect(key) { }              // Побочные эффекты
+}

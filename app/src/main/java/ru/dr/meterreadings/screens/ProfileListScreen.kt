@@ -6,15 +6,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
-import ru.dr.meterreadings.models.domain.ProfileDomainModel
-
+import ru.dr.meterreadings.models.ui.ProfileUiModel
+import ru.dr.meterreadings.viewmodels.ProfileViewModel
 
 /**
  * Главный экран приложения - список профилей пользователя
@@ -22,57 +26,41 @@ import ru.dr.meterreadings.models.domain.ProfileDomainModel
  * MVVM архитектура:
  * - UI (Composable функции) - отображает данные
  * - State (remember/mutableStateOf) - состояние UI
- * - Позже добавим ViewModel для бизнес-логики
+ * - ViewModel для бизнес-логики и работы с БД
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileListScreen(
-    navController: NavHostController
+    navController: NavHostController,
+    viewModel: ProfileViewModel = hiltViewModel()
 ) {
     // =====================================================
     // STATE - состояние экрана (данные + UI состояние)
     // =====================================================
 
     // Показывать/скрывать диалог создания профиля
-    // mutableStateOf - "реактивная переменная", изменения автоматически
-    // перерисовывают UI только там, где она используется
     var showDialog by remember { mutableStateOf(false) }
 
-    // Список профилей - пока в памяти, позже из БД через ViewModel
-    // mutableStateListOf - специальный список, который уведомляет UI об изменениях
-    // remember - сохраняет список между перерисовками экрана
-    val profiles = remember {
-        mutableStateListOf(
-            ProfileDomainModel(id = "1", name = "Моя недвижимость", icon = "🏠"),
-            ProfileDomainModel(id = "2", name = "Служебная недвижимость", icon = "🏢")
-        )
-    }
+    // Диалог подтверждения удаления
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var profileToDelete by remember { mutableStateOf<ProfileUiModel?>(null) }
+
+    // Список профилей из БД через ViewModel (с автообновлением!)
+    val profiles by viewModel.profiles.collectAsStateWithLifecycle()
 
     // Scaffold - каркас Material Design экрана
-    // Автоматически предоставляет:
-    // - topBar (верхняя панель)
-    // - floatingActionButton (круглая кнопка)
-    // - content (основное содержимое с отступами)
     Scaffold(
         topBar = {
-            // TopAppBar - стандартная верхняя панель Material 3
             TopAppBar(
-                title = {
-                    // Text внутри TopAppBar автоматически стилизуется
-                    Text("Передача показаний")
-                }
+                title = { Text("Профили") }
             )
         },
-        // Круглая кнопка плавающего действия - главное действие экрана
+        // Круглая кнопка плавающего действия
         floatingActionButton = {
             FloatingActionButton(
-                onClick = {
-                    showDialog = true  // ← Открываем диалог создания профиля
-                    //navController.navigate("add_account/${profile.id}")
-                }
+                onClick = { showDialog = true }
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Добавить профиль")
-                //Icon(Icons.Default.Add, contentDescription = null)
             }
         }
     ) { paddingValues ->
@@ -81,44 +69,80 @@ fun ProfileListScreen(
         // =====================================================
 
         // LazyColumn = RecyclerView в Compose
-        // Эффективно: создает только видимые элементы, остальные лениво
         LazyColumn(
             modifier = Modifier
-                .fillMaxSize()                    // 1. Заполнить экран
-                .padding(16.dp),                  // 2. Отступы 16dp
-            contentPadding = paddingValues,       // 3. Отступы от topBar/FAB
+                .fillMaxSize()
+                .padding(16.dp),
+            contentPadding = paddingValues,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // items() - стандартный способ отображения списка
-            // Для каждого элемента из profiles вызывается ProfileCard
+            // items() - отображение списка из БД
             items(profiles) { profile ->
                 ProfileCard(
                     profile = profile,
                     onClick = {
-                        navController.navigate("profile/${profile.id}")
+                        navController.navigate("profile/${profile.profile.id}")
+                    },
+                    onEdit = {
+                        // TODO: редактирование
+                    },
+                    onDelete = {
+                        profileToDelete = profile
+                        showDeleteDialog = true
                     }
                 )
             }
         }
+    }
 
-        // =====================================================
-        // ДИАЛОГ - показывается поверх основного контента
-        // =====================================================
-        // if (условие) - условный рендеринг в Compose
-        if (showDialog) {
-            // ProfileDialog - модальное окно поверх экрана
-            ProfileDialog(
-                // Функции обратного вызова (callbacks)
-                onDismiss = { showDialog = false },  // закрыть диалог
-                onProfileCreated = { newProfile ->
-                    // Добавляем новый профиль в список
-                    // Изменение mutableStateListOf автоматически перерисовывает UI
-                    profiles.add(newProfile)
-                    // Скрываем диалог
-                    showDialog = false
+    // =====================================================
+    // ДИАЛОГ СОЗДАНИЯ ПРОФИЛЯ
+    // =====================================================
+    if (showDialog) {
+        ProfileDialog(
+            onDismiss = { showDialog = false },
+            viewModel = viewModel
+        )
+    }
+
+    // =====================================================
+    // ДИАЛОГ ПОДТВЕРЖДЕНИЯ УДАЛЕНИЯ
+    // =====================================================
+    if (showDeleteDialog && profileToDelete != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showDeleteDialog = false
+                profileToDelete = null
+            },
+            title = { Text("Удалить профиль \"${profileToDelete?.profile?.name}\"?") },
+            text = { Text("Все данные этого профиля будут удалены. Это действие нельзя отменить.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        profileToDelete?.let {
+                            viewModel.deleteProfile(it.profile.id)
+                        }
+                        showDeleteDialog = false
+                        profileToDelete = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Удалить")
                 }
-            )
-        }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        profileToDelete = null
+                    }
+                ) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 }
 
@@ -129,60 +153,126 @@ fun ProfileListScreen(
  */
 @Composable
 fun ProfileCard(
-    profile: ProfileDomainModel,
-    onClick: (() -> Unit)? = null
+    profile: ProfileUiModel,
+    onClick: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Card(
         // Занимает всю ширину доступного пространства
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = onClick != null) {
-                onClick?.invoke()  // ← Безопасный вызов
-            },
-        // Тень карточки (elevation)
+            .clickable { onClick() },
+        // Тень карточки
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         // Внутренний контент карточки
         Row(
-            // Отступы внутри карточки
             modifier = Modifier.padding(16.dp),
-            // Вертикальное выравнивание элементов строки
             verticalAlignment = Alignment.CenterVertically
         ) {
             // =====================================================
             // ИКОНКА ПРОФИЛЯ (эмодзи)
             // =====================================================
             Text(
-                // Текст эмодзи (из модели Profile)
-                text = profile.icon ?: "📋",  // ?: - Elvis operator (null coalescing)
-                // Большой шрифт для эмодзи
-                style = MaterialTheme.typography.headlineLarge,
-                // Отступ справа от иконки
+                text = profile.profile.icon ?: "🏠",
+                style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(end = 16.dp)
             )
 
             // =====================================================
             // ИНФОРМАЦИЯ О ПРОФИЛЕ
             // =====================================================
-            // Column с весом 1f - занимает всё оставшееся место
             Column(modifier = Modifier.weight(1f)) {
-                // Название профиля - основной текст
-                Text(
-                    text = profile.name,
-                    // Заголовок карточки
-                    style = MaterialTheme.typography.titleLarge
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Название профиля
+                    Text(
+                        text = profile.profile.name,
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f)
+                    )
 
-                // Пробел между строками
+                    // Бейдж "По умолчанию"
+                    if (profile.profile.isDefault) {
+                        Text(
+                            text = "По умолчанию",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Заглушка - позже заменим на реальные данные из БД
+                // Статистика профиля
                 Text(
-                    text = "0 компаний • 0 адресов",
-                    // Меньший шрифт, вторичный цвет
+                    text = "${profile.addressCount} адресов • ${profile.accountCount} счетов",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                // Дата последнего обновления
+                profile.lastUpdateDate?.let { date ->
+                    Text(
+                        text = "Обновлено: $date",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // =====================================================
+            // МЕНЮ С ТРЕМЯ ТОЧКАМИ
+            // =====================================================
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "Меню",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Редактировать") },
+                        onClick = {
+                            showMenu = false
+                            onEdit()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Edit, contentDescription = null)
+                        }
+                    )
+
+                    Divider()
+
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "Удалить",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            onDelete()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    )
+                }
             }
         }
     }
@@ -191,22 +281,21 @@ fun ProfileCard(
 /**
  * Диалог создания нового профиля
  *
- * AlertDialog - стандартный Material 3 диалог с заголовком, контентом и кнопками
+ * AlertDialog - стандартный Material 3 диалог
  */
 @Composable
 fun ProfileDialog(
-    onDismiss: () -> Unit,           // закрыть диалог
-    onProfileCreated: (ProfileDomainModel) -> Unit  // что делать с новым профилем
+    onDismiss: () -> Unit,
+    viewModel: ProfileViewModel
 ) {
     // =====================================================
     // STATE ДИАЛОГА - локальное состояние
     // =====================================================
 
-    // Название профиля - TextFieldValue лучше String для Compose
-    // (поддерживает курсор, выделение, историю изменений)
-    var profileName by remember { mutableStateOf(TextFieldValue("")) }
+    // Название профиля
+    var profileName by remember { mutableStateOf("") }
 
-    // Выбранная иконка - строка с эмодзи
+    // Выбранная иконка
     var selectedIcon by remember { mutableStateOf("🏠") }
 
     AlertDialog(
@@ -218,23 +307,15 @@ fun ProfileDialog(
 
         // Контент диалога
         text = {
-            // Вертикальный контейнер с отступами между элементами
-            Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 // =====================================================
                 // ПОЛЕ ВВОДА НАЗВАНИЯ
                 // =====================================================
                 OutlinedTextField(
-                    // Текущее значение поля
                     value = profileName,
-                    // Обработчик изменений - автоматически перерисовывает UI
                     onValueChange = { profileName = it },
-                    // Подпись поля (плавает вверх при фокусе)
                     label = { Text("Название профиля") },
-                    // Занимает всю ширину диалога
                     modifier = Modifier.fillMaxWidth(),
-                    // Одна строка (без переноса)
                     singleLine = true
                 )
 
@@ -248,22 +329,14 @@ fun ProfileDialog(
             }
         },
 
-        // Кнопка подтверждения (справа)
+        // Кнопка подтверждения
         confirmButton = {
             TextButton(
-                // Простая проверка - название не пустое
                 onClick = {
-                    val name = profileName.text.trim()
+                    val name = profileName.trim()
                     if (name.isNotEmpty()) {
-                        // Создаем объект Profile
-                        val newProfile = ProfileDomainModel(
-                            // Временный ID - позже UUID из БД
-                            id = System.currentTimeMillis().toString(),
-                            name = name,
-                            icon = selectedIcon
-                        )
-                        // Вызываем callback родителя
-                        onProfileCreated(newProfile)
+                        viewModel.createProfile(name = name, icon = selectedIcon)
+                        onDismiss()
                     }
                 }
             ) {
@@ -271,7 +344,7 @@ fun ProfileDialog(
             }
         },
 
-        // Кнопка отмены (слева)
+        // Кнопка отмены
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Отмена")
@@ -282,8 +355,6 @@ fun ProfileDialog(
 
 /**
  * Компонент выбора иконки (эмодзи)
- *
- * Можно вынести в отдельный файл позже
  */
 @Composable
 fun IconPicker(
@@ -299,37 +370,23 @@ fun IconPicker(
         Spacer(modifier = Modifier.height(8.dp))
 
         // Горизонтальный ряд эмодзи
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // Список доступных иконок
-            val icons = listOf(
-                "🏠", "🏢", "🏪", "🏭", "🏘️", "🏡", "📍", "📋"
-            )
+            val icons = listOf("🏠", "🏢", "🏪", "🏭", "🏘️", "🏡", "📍", "📋")
 
-            // forEach создает Text для каждой иконки
             icons.forEach { icon ->
-                // Проверяем, выбрана ли текущая иконка
                 val isSelected = selectedIcon == icon
 
                 Text(
                     text = icon,
-                    // Большой размер для эмодзи
                     style = MaterialTheme.typography.headlineLarge,
-                    // Цвет зависит от выбора
                     color = if (isSelected)
-                    // Основной цвет темы если выбрано
                         MaterialTheme.colorScheme.primary
                     else
-                    // Вторичный цвет если не выбрано
                         MaterialTheme.colorScheme.onSurfaceVariant,
-                    // Размер области клика
                     modifier = Modifier
-                        .size(48.dp)  // квадрат 48x48 dp
-                        .clickable {
-                            // Обработчик клика - меняем состояние
-                            onIconSelected(icon)
-                        }
+                        .size(48.dp)
+                        .clickable { onIconSelected(icon) }
                 )
             }
         }

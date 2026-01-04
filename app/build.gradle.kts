@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.hilt.android)
     kotlin("kapt")
+    // НЕ добавляй ksp, используем только kapt
 }
 
 android {
@@ -53,7 +54,7 @@ android {
 }
 
 dependencies {
-    // Hilt
+    // Hilt - Dependency Injection
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
@@ -62,7 +63,6 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
-
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
 
     // Compose BOM (управляет версиями Compose)
@@ -71,11 +71,16 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-
     implementation("androidx.compose.material:material-icons-extended:1.6.0")
 
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.8.1")
+
+    // Room - локальная база данных SQLite
+    val room_version = "2.6.1"
+    implementation("androidx.room:room-runtime:$room_version")
+    implementation("androidx.room:room-ktx:$room_version")  // Coroutines support
+    kapt("androidx.room:room-compiler:$room_version")       // Кодогенерация
 
     // Debug
     debugImplementation(libs.androidx.ui.tooling)
