@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
@@ -32,6 +33,16 @@ fun ProfileDetailScreen(
     var showMenu by remember { mutableStateOf(false) }
 
     // =====================================================
+    // STATE ДЛЯ УДАЛЕНИЯ АККАУНТА
+    // =====================================================
+
+    // Показывать ли диалог подтверждения удаления
+    var showDeleteAccountDialog by remember { mutableStateOf(false) }
+
+    // Какой аккаунт хотим удалить (сохраняем для диалога)
+    var accountToDelete by remember { mutableStateOf<AccountUiModel?>(null) }
+
+    // =====================================================
     // STATE ИЗ VIEWMODEL (вместо моков!)
     // =====================================================
     val profile by viewModel.profile.collectAsState()
@@ -42,7 +53,7 @@ fun ProfileDetailScreen(
     // Обработка ошибок
     LaunchedEffect(error) {
         error?.let {
-            println("❌ Ошибка: $it")
+            println("❌ [ProfileDetailScreen] Ошибка: $it")
             viewModel.clearError()
         }
     }
@@ -149,18 +160,7 @@ fun ProfileDetailScreen(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Добавить снабжающую кампанию") },
-                            onClick = {
-                                showMenu = false
-                                navController.navigate("add_account/$profileId")
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.Add, contentDescription = null)
-                            }
-                        )
-
-                        Divider()
+                        // ❌ УБРАЛИ "Добавить счёт" (теперь через FAB)
 
                         DropdownMenuItem(
                             text = { Text("Редактировать профиль") },
@@ -175,6 +175,19 @@ fun ProfileDetailScreen(
                     }
                 }
             )
+        },
+        // ✅ ДОБАВИЛИ FAB ДЛЯ ДОБАВЛЕНИЯ СЧЁТА
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = {
+                    navController.navigate("add_account/$profileId")
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Добавить лицевой счёт"
+                )
+            }
         }
     ) { paddingValues ->
         // =====================================================
@@ -200,7 +213,7 @@ fun ProfileDetailScreen(
                         style = MaterialTheme.typography.titleLarge
                     )
                     Text(
-                        text = "Добавьте первый счёт через меню",
+                        text = "Нажмите кнопку + чтобы добавить первый счёт",  // ← Обновили подсказку
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -233,6 +246,12 @@ fun ProfileDetailScreen(
                                 provider = provider,
                                 onClick = {
                                     // TODO: Открыть детали счета
+                                },
+                                // ✅ ПАРАМЕТР - что делать при удалении
+                                onDelete = {
+                                    // Сохраняем данные счёта и показываем диалог подтверждения
+                                    accountToDelete = accountUi
+                                    showDeleteAccountDialog = true
                                 }
                             )
                         }
@@ -240,6 +259,62 @@ fun ProfileDetailScreen(
                 }
             }
         }
+    }
+
+    // =====================================================
+    // ДИАЛОГ ПОДТВЕРЖДЕНИЯ УДАЛЕНИЯ АККАУНТА
+    // =====================================================
+    if (showDeleteAccountDialog && accountToDelete != null) {
+        AlertDialog(
+            onDismissRequest = {
+                // Закрыть диалог при клике вне его
+                showDeleteAccountDialog = false
+                accountToDelete = null
+            },
+            title = {
+                Text("Удалить лицевой счёт?")
+            },
+            text = {
+                // Показываем информацию о удаляемом счёте
+                val provider = providers[accountToDelete!!.account.providerId]
+                Text(
+                    "Лицевой счёт № ${accountToDelete!!.account.accountNumber}\n" +
+                            "${provider?.name ?: "Неизвестный провайдер"}\n\n" +
+                            "Все данные этого счёта будут удалены. Это действие нельзя отменить."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        // Вызываем метод удаления из ViewModel
+                        accountToDelete?.let { account ->
+                            viewModel.deleteAccount(account.account.id)
+                        }
+
+                        // Закрываем диалог
+                        showDeleteAccountDialog = false
+                        accountToDelete = null
+                    },
+                    // Красная кнопка для акцента опасного действия
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Удалить")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        // Отмена - просто закрываем диалог
+                        showDeleteAccountDialog = false
+                        accountToDelete = null
+                    }
+                ) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 }
 
@@ -285,7 +360,8 @@ fun AddressHeader(
 fun AccountCard(
     accountUi: AccountUiModel,
     provider: ProviderDomainModel,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val icon = when (provider.type) {
         "ЖКХ" -> "🏢"
@@ -294,6 +370,9 @@ fun AccountCard(
         "Водоснабжение" -> "💧"
         else -> "📋"
     }
+
+    // ✅ STATE - показывать/скрывать меню с тремя точками
+    var showMenu by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier
@@ -305,13 +384,16 @@ fun AccountCard(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Иконка провайдера (эмодзи)
             Text(
                 text = icon,
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(end = 16.dp)
             )
 
+            // Информация о счёте
             Column(modifier = Modifier.weight(1f)) {
+                // Тип провайдера (ЖКХ, Газ, etc)
                 Text(
                     text = provider.type,
                     style = MaterialTheme.typography.labelMedium,
@@ -319,12 +401,16 @@ fun AccountCard(
                 )
 
                 Spacer(modifier = Modifier.height(2.dp))
+
+                // Название провайдера
                 Text(
                     text = provider.name,
                     style = MaterialTheme.typography.titleMedium
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
+
+                // Номер лицевого счёта
                 Text(
                     text = "№ ${accountUi.account.accountNumber}",
                     style = MaterialTheme.typography.bodyMedium,
@@ -332,11 +418,53 @@ fun AccountCard(
                 )
 
                 Spacer(modifier = Modifier.height(2.dp))
+
+                // Количество счётчиков
                 Text(
                     text = "${accountUi.meters.size} счетчиков",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            // =====================================================
+            // ✅ НОВОЕ - МЕНЮ С ТРЕМЯ ТОЧКАМИ (как в ProfileCard)
+            // =====================================================
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "Меню",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Выпадающее меню
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    // Пункт "Удалить" (красным цветом для акцента)
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "Удалить",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            onDelete() // ← Вызываем callback
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    )
+                }
             }
         }
     }

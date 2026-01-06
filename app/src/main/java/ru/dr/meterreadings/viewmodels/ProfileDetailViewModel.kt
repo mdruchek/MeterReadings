@@ -40,7 +40,7 @@ class ProfileDetailViewModel @Inject constructor(
     val error: StateFlow<String?> = _error.asStateFlow()
 
     init {
-        println("🔍 ProfileDetailViewModel создан для профиля: $profileId")
+        println("🔍 [ViewModel] ProfileDetailViewModel создан для профиля: $profileId")
         loadProfileData()
     }
 
@@ -53,23 +53,23 @@ class ProfileDetailViewModel @Inject constructor(
                 _isLoading.value = true
                 _error.value = null
 
-                println("📥 Загружаем профиль: $profileId")
+                println("📥 [ViewModel] Загружаем профиль: $profileId")
 
                 val profile = profileRepository.getProfileById(profileId).first()
                 if (profile == null) {
                     _error.value = "Профиль не найден"
-                    println("❌ Профиль $profileId не найден")
+                    println("❌ [ViewModel] Профиль $profileId не найден")
                     _isLoading.value = false
                     return@launch
                 }
 
                 _profile.value = profile
-                println("✅ Профиль загружен: ${profile.name}")
+                println("✅ [ViewModel] Профиль загружен: ${profile.name}")
                 _isLoading.value = false
 
             } catch (e: Exception) {
                 _error.value = "Ошибка загрузки: ${e.message}"
-                println("❌ Ошибка загрузки профиля: ${e.message}")
+                println("❌ [ViewModel] Ошибка загрузки профиля: ${e.message}")
                 e.printStackTrace()
                 _isLoading.value = false
             }
@@ -100,7 +100,7 @@ class ProfileDetailViewModel @Inject constructor(
     fun deleteProfile(onSuccess: () -> Unit) {
         viewModelScope.launch {
             try {
-                println("🗑️ Удаляем профиль: $profileId")
+                println("🗑️ [ViewModel] Удаляем профиль: $profileId")
 
                 if (_profile.value == null) {
                     _error.value = "Профиль не найден"
@@ -108,12 +108,42 @@ class ProfileDetailViewModel @Inject constructor(
                 }
 
                 profileRepository.deleteProfile(profileId)
-                println("✅ Профиль удалён!")
+                println("✅ [ViewModel] Профиль удалён!")
                 onSuccess()
 
             } catch (e: Exception) {
                 _error.value = "Ошибка удаления: ${e.message}"
-                println("❌ Ошибка удаления профиля: ${e.message}")
+                println("❌ [ViewModel] Ошибка удаления профиля: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Удалить лицевой счёт
+     *
+     * Вызывает AccountRepository для удаления из БД.
+     * Благодаря Flow, UI автоматически обновится после удаления.
+     *
+     * @param accountId ID счёта для удаления
+     */
+    fun deleteAccount(accountId: String) {
+        viewModelScope.launch {
+            try {
+                println("🗑️ [ViewModel] Удаляем аккаунт: $accountId")
+
+                // Вызываем Repository для удаления из БД
+                accountRepository.deleteAccount(accountId)
+
+                println("✅ [ViewModel] Аккаунт удалён!")
+
+                // UI автоматически обновится благодаря Flow в loadProfileData()
+                // Нам не нужно вручную обновлять _accounts - Flow сделает это сам!
+
+            } catch (e: Exception) {
+                // Обрабатываем ошибки (например, счёт не найден)
+                _error.value = "Ошибка удаления: ${e.message}"
+                println("❌ [ViewModel] Ошибка удаления аккаунта: ${e.message}")
+                e.printStackTrace()
             }
         }
     }

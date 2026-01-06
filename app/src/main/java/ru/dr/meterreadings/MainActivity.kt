@@ -21,7 +21,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
-import ru.dr.meterreadings.screens.AddAccountWizard
+import ru.dr.meterreadings.screens.AddAccountScreen
 import ru.dr.meterreadings.screens.ProfileDetailScreen
 import ru.dr.meterreadings.screens.ProfileListScreen
 import ru.dr.meterreadings.viewmodels.ProfileViewModel
@@ -66,50 +66,11 @@ fun MeterReadingsApp() {
         composable("add_account/{profileId}") { backStackEntry ->
             val profileId = backStackEntry.arguments?.getString("profileId") ?: ""
 
-            // Получаем ViewModel (Hilt создаст автоматически)
-            val viewModel: ProfileViewModel = hiltViewModel()
-
-            // Загружаем профиль по ID
-            LaunchedEffect(profileId) {
-                viewModel.loadProfile(profileId)
-            }
-
-            // Подписываемся на изменения профиля
-            val profileUi by viewModel.profile.collectAsStateWithLifecycle()
-
-            // Показываем мастер только когда профиль загружен
-            profileUi?.let { loadedProfile ->
-                AddAccountWizard(
-                    profile = loadedProfile.profile,  // Передаем ProfileDomainModel
-                    onAccountAdded = { newAccount ->
-                        // =====================================================
-                        // СОХРАНЯЕМ АККАУНТ В БД ЧЕРЕЗ VIEWMODEL!
-                        // =====================================================
-                        println("✅ [MainActivity] Добавлен аккаунт: ${newAccount.account.accountNumber}")
-
-                        viewModel.addAccount(
-                            profileId = profileId,
-                            providerId = newAccount.account.providerId,
-                            accountNumber = newAccount.account.accountNumber
-                        )
-
-                        println("✅ [MainActivity] Аккаунт добавлен, возвращаемся назад")
-
-                        // Просто возвращаемся назад на ProfileDetailScreen
-                        navController.popBackStack()
-                    },
-                    onCancel = {
-                        // Callback при отмене
-                        navController.navigateUp()
-                    }
-                )
-            } ?: Box(
-                // Показываем загрузку пока профиль не загружен
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+            // ✅ ПРОСТО ПОКАЗЫВАЕМ СТРАНИЦУ
+            AddAccountScreen(
+                profileId = profileId,
+                navController = navController
+            )
         }
     }
 }
