@@ -16,7 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.hilt.navigation.compose.hiltViewModel
-import ru.dr.meterreadings.viewmodels.ProfileViewModel
+import ru.dr.meterreadings.viewmodels.ProfileDetailViewModel  // ← ИЗМЕНИЛИ!
 import ru.dr.meterreadings.models.ui.AccountUiModel
 import ru.dr.meterreadings.models.domain.AccountDomainModel
 import ru.dr.meterreadings.models.domain.ProviderDomainModel
@@ -27,50 +27,59 @@ import ru.dr.meterreadings.models.domain.AuthType
 fun ProfileDetailScreen(
     profileId: String,
     navController: NavHostController,
-    viewModel: ProfileViewModel = hiltViewModel()
+    viewModel: ProfileDetailViewModel = hiltViewModel()  // ← ИЗМЕНИЛИ!
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
-    // Моковые аккаунты (позже из ViewModel)
-    val accounts = remember {
-        listOf(
-            AccountUiModel(
-                account = AccountDomainModel(
-                    id = "1",
-                    profileId = profileId,
-                    providerId = "provider_1",
-                    accountNumber = "123456789"
-                ),
-                address = "ул. Ленина, д. 5, кв. 12",
-                lastUpdated = System.currentTimeMillis(),
-                meters = emptyList()
-            ),
-            AccountUiModel(
-                account = AccountDomainModel(
-                    id = "2",
-                    profileId = profileId,
-                    providerId = "provider_2",
-                    accountNumber = "987654321"
-                ),
-                address = "ул. Ленина, д. 5, кв. 12",
-                lastUpdated = System.currentTimeMillis(),
-                meters = emptyList()
-            ),
-            AccountUiModel(
-                account = AccountDomainModel(
-                    id = "3",
-                    profileId = profileId,
-                    providerId = "provider_3",
-                    accountNumber = "555555555"
-                ),
-                address = "пос. Лесной, д. 8",
-                lastUpdated = System.currentTimeMillis(),
-                meters = emptyList()
-            )
-        )
+    // =====================================================
+    // STATE ИЗ VIEWMODEL (вместо моков!)
+    // =====================================================
+    val profile by viewModel.profile.collectAsState()
+    val accounts by viewModel.accounts.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val error by viewModel.error.collectAsState()
+
+    // Обработка ошибок
+    LaunchedEffect(error) {
+        error?.let {
+            println("❌ Ошибка: $it")
+            viewModel.clearError()
+        }
     }
 
-    // Справочник провайдеров
+    // Показываем загрузку или "профиль не найден"
+    if (profile == null) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Детали профиля") },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.navigateUp() }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
+                        }
+                    }
+                )
+            }
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator()
+                } else {
+                    Text("Профиль не найден")
+                }
+            }
+        }
+        return
+    }
+
+    // =====================================================
+    // СПРАВОЧНИК ПРОВАЙДЕРОВ (пока моковый)
+    // =====================================================
     val providers = remember {
         mapOf(
             "provider_1" to ProviderDomainModel(
@@ -100,19 +109,31 @@ fun ProfileDetailScreen(
         )
     }
 
+    // =====================================================
+    // ПРЕОБРАЗУЕМ ACCOUNTS В AccountUiModel
+    // =====================================================
+    val accountsUi = remember(accounts) {
+        accounts.map { account ->
+            AccountUiModel(
+                account = account,
+                address = "Адрес не указан",  // TODO: добавить Address в БД
+                lastUpdated = null, // ← null пока не парсим сайты
+                meters = emptyList()  // TODO: загрузить счетчики
+            )
+        }
+    }
+
     // Группируем по адресам
-    val accountsByAddress = accounts
+    val accountsByAddress = accountsUi
         .filter { it.address != null }
         .groupBy { it.address!! }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Детали профиля") },
+                title = { Text(profile?.name ?: "Загрузка...") },  // ← Реальное имя!
                 navigationIcon = {
-                    IconButton(onClick = {
-                        navController.navigateUp()
-                    }) {
+                    IconButton(onClick = { navController.navigateUp() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
                     }
                 },
@@ -156,31 +177,65 @@ fun ProfileDetailScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            contentPadding = paddingValues,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            accountsByAddress.forEach { (address, accountsAtAddress) ->
-                item {
-                    AddressHeader(
-                        address = address,
-                        accountCount = accountsAtAddress.size
+        // =====================================================
+        // ЕСЛИ НЕТ АККАУНТОВ - ПОКАЗЫВАЕМ PLACEHOLDER
+        // =====================================================
+        if (accountsUi.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "📭",
+                        style = MaterialTheme.typography.displayLarge
+                    )
+                    Text(
+                        text = "Нет счетов",
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    Text(
+                        text = "Добавьте первый счёт через меню",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-
-                items(accountsAtAddress) { accountUi ->
-                    val provider = providers[accountUi.account.providerId]
-                    if (provider != null) {
-                        AccountCard(
-                            accountUi = accountUi,
-                            provider = provider,
-                            onClick = {
-                                // TODO: Открыть детали счета
-                            }
+            }
+        } else {
+            // =====================================================
+            // СПИСОК АККАУНТОВ
+            // =====================================================
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentPadding = paddingValues,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                accountsByAddress.forEach { (address, accountsAtAddress) ->
+                    item {
+                        AddressHeader(
+                            address = address,
+                            accountCount = accountsAtAddress.size
                         )
+                    }
+
+                    items(accountsAtAddress) { accountUi ->
+                        val provider = providers[accountUi.account.providerId]
+                        if (provider != null) {
+                            AccountCard(
+                                accountUi = accountUi,
+                                provider = provider,
+                                onClick = {
+                                    // TODO: Открыть детали счета
+                                }
+                            )
+                        }
                     }
                 }
             }

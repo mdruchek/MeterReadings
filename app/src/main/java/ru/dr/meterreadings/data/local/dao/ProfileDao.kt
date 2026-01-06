@@ -24,37 +24,13 @@ interface ProfileDao {
      * UI будет автоматически перерисовываться при изменениях!
      */
     @Query("SELECT * FROM profiles ORDER BY name ASC")
-    fun getAllFlow(): Flow<List<ProfileEntity>>
-
-    /**
-     * Получить все профили (одноразово)
-     *
-     * suspend - корутина, выполняется асинхронно
-     */
-    @Query("SELECT * FROM profiles ORDER BY name ASC")
-    suspend fun getAll(): List<ProfileEntity>
-
-    /**
-     * Получить профиль по ID
-     *
-     * :id - параметр запроса (подставится значение из параметра функции)
-     */
-    @Query("SELECT * FROM profiles WHERE id = :id")
-    suspend fun getById(id: String): ProfileEntity?
-
-    /**
-     * Получить профиль по умолчанию
-     *
-     * LIMIT 1 - вернёт только первый результат
-     */
-    @Query("SELECT * FROM profiles WHERE isDefault = 1 LIMIT 1")
-    suspend fun getDefault(): ProfileEntity?
+    fun getAll(): Flow<List<ProfileEntity>>
 
     /**
      * Получить профиль по ID как Flow (с автообновлением)
      */
     @Query("SELECT * FROM profiles WHERE id = :id")
-    fun getByIdFlow(id: String): Flow<ProfileEntity?>
+    fun getById(id: String): Flow<ProfileEntity?>
 
     // ========================================
     // ДОБАВЛЕНИЕ/ОБНОВЛЕНИЕ (INSERT/UPDATE)
@@ -113,31 +89,17 @@ interface ProfileDao {
     // ========================================
 
     /**
-     * Сбросить флаг isDefault у всех профилей
-     *
-     * Нужно перед установкой нового профиля по умолчанию
-     */
-    @Query("UPDATE profiles SET isDefault = 0")
-    suspend fun clearDefaultFlag()
-
-    /**
-     * Установить профиль по умолчанию
-     *
-     * @Transaction - все операции выполнятся атомарно (вместе или никак)
-     */
-    @Transaction
-    suspend fun setDefault(profileId: String) {
-        clearDefaultFlag()  // Сначала сбросить у всех
-        // Потом установить у нужного
-        val profile = getById(profileId)
-        if (profile != null) {
-            update(profile.copy(isDefault = true))
-        }
-    }
-
-    /**
      * Получить количество профилей
      */
     @Query("SELECT COUNT(*) FROM profiles")
     suspend fun getCount(): Int
+
+    /**
+     * Проверить существование профиля с таким именем
+     *
+     * EXISTS(...) возвращает 1 если найдено, 0 если нет
+     * Room автоматически конвертирует в Boolean
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM profiles WHERE name = :name)")
+    suspend fun existsByName(name: String): Boolean
 }

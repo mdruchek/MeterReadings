@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import ru.dr.meterreadings.data.repository.ProfileRepository
+import ru.dr.meterreadings.data.repository.AccountRepository
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
 import ru.dr.meterreadings.models.ui.ProfileUiModel
 import javax.inject.Inject
@@ -19,7 +20,8 @@ import kotlin.Int
  */
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
-    private val repository: ProfileRepository  // Hilt передаст автоматически
+    private val repository: ProfileRepository,  // Hilt передаст автоматически
+    private val accountRepository: AccountRepository
 ) : ViewModel() {
 
     // ========================================
@@ -37,7 +39,7 @@ class ProfileViewModel @Inject constructor(
      * - initialValue: emptyList() - начальное значение пока БД не ответила
      */
     val profiles: StateFlow<List<ProfileUiModel>> = repository
-        .getAllProfilesFlow()  // Flow<List<ProfileDomainModel>> из Repository
+        .getAllProfiles()  // Flow<List<ProfileDomainModel>> из Repository
         .map { domainProfiles ->
             // Конвертируем Domain → UI
             domainProfiles.map { domain ->
@@ -100,51 +102,52 @@ class ProfileViewModel @Inject constructor(
     /**
      * Загрузить профиль по ID
      *
-     * Вызывается из ProfileDetailScreen
+     * Подписывается на изменения профиля (Flow)
+     * Профиль автоматически обновится при изменении в БД
      */
     fun loadProfile(profileId: String) {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val domainProfile = repository.getProfileById(profileId)
-                if (domainProfile != null) {
-                    _profile.value = ProfileUiModel(
-                        profile = domainProfile,
-                        addressCount = 0,  // TODO: посчитать
-                        accountCount = 0,  // TODO: посчитать
-                        readingsCount = 0,
-                        lastUpdateDate = null
-                    )
-                } else {
-                    _error.value = "Профиль не найден"
-                }
+                // Подписываемся на Flow профиля
+                repository.getProfileById(profileId)
+                    .collect { domainProfile ->
+                        if (domainProfile != null) {
+                            _profile.value = ProfileUiModel(
+                                profile = domainProfile,
+                                addressCount = 0,  // TODO: repository.getAccountCountForProfile()
+                                accountCount = 0,
+                                readingsCount = 0,
+                                lastUpdateDate = null
+                            )
+                            _isLoading.value = false
+                        } else {
+                            _error.value = "Профиль не найден"
+                            _isLoading.value = false
+                        }
+                    }
             } catch (e: Exception) {
                 _error.value = "Ошибка загрузки: ${e.message}"
-            } finally {
                 _isLoading.value = false
             }
         }
     }
 
+
     /**
      * Создать новый профиль
      */
-    fun createProfile(name: String, icon: String? = null, isDefault: Boolean = false) {
+    fun createProfile(name: String, icon: String? = null) {
         viewModelScope.launch {
             try {
-                val newProfile = ProfileDomainModel(
-                    id = generateProfileId(),
-                    name = name,
-                    icon = icon,
-                    isDefault = isDefault
-                )
+                // repository.createProfile() сам генерирует ID и валидирует
+                val newProfileId = repository.createProfile(name, icon)
+                //                           ↑ Возвращает ID созданного профиля
 
-                // Если это профиль по умолчанию - сбросить флаг у других
-                if (isDefault) {
-                    repository.setDefaultProfile(newProfile.id)
-                } else {
-                    repository.saveProfile(newProfile)
-                }
+                println("✅ Профиль создан с ID: $newProfileId")
+            } catch (e: IllegalArgumentException) {
+                // Ошибки валидации из Repository
+                _error.value = e.message  // "Profile with name 'X' already exists"
             } catch (e: Exception) {
                 _error.value = "Ошибка создания профиля: ${e.message}"
             }
@@ -152,14 +155,57 @@ class ProfileViewModel @Inject constructor(
     }
 
     /**
-     * Обновить профиль
+     * Обновить профиль (универсальный метод)
      */
     fun updateProfile(profile: ProfileDomainModel) {
         viewModelScope.launch {
             try {
                 repository.updateProfile(profile)
+            } catch (e: IllegalArgumentException) {
+                _error.value = e.message  // "Profile not found"
             } catch (e: Exception) {
                 _error.value = "Ошибка обновления: ${e.message}"
+            }
+        }
+    }
+
+    /**
+     * Обновить только имя профиля (с валидацией)
+     */
+    fun updateProfileName(profileId: String, newName: String) {
+        viewModelScope.launch {
+            try {
+                repository.updateProfileName(profileId, newName)
+                println("✅ Профиль переименован в '$newName'")
+
+            } catch (e: IllegalArgumentException) {
+                // Ошибки валидации:
+                // - "Profile not found"
+                // - "Profile with name 'X' already exists"
+                _error.value = e.message
+            } catch (e: Exception) {
+                _error.value = "Ошибка переименования: ${e.message}"
+            }
+        }
+    }
+
+    /**
+     * Обновить иконку профиля
+     */
+    fun updateProfileIcon(profileId: String, newIcon: String) {
+        viewModelScope.launch {
+            try {
+                val domainProfile = repository.getProfileById(profileId).first()
+                if (domainProfile != null) {
+                    repository.updateProfile(domainProfile.copy(icon = newIcon))
+                    println("✅ Иконка обновлена")
+                } else {
+                    _error.value = "Профиль не найден"
+                }
+            } catch (e: IllegalArgumentException) {
+                _error.value = e.message
+            } catch (e: Exception) {
+                _error.value = "Ошибка обновления иконки: ${e.message}"
             }
         }
     }
@@ -178,14 +224,28 @@ class ProfileViewModel @Inject constructor(
     }
 
     /**
-     * Установить профиль по умолчанию
+     * Добавить аккаунт к профилю
      */
-    fun setDefaultProfile(profileId: String) {
+    fun addAccount(
+        profileId: String,
+        providerId: String,
+        accountNumber: String
+    ) {
         viewModelScope.launch {
             try {
-                repository.setDefaultProfile(profileId)
+                println("💾 [ProfileViewModel] Добавляем аккаунт: $accountNumber")
+
+                val accountId = accountRepository.addAccount(
+                    profileId = profileId,
+                    providerId = providerId,
+                    accountNumber = accountNumber
+                )
+
+                println("✅ [ProfileViewModel] Аккаунт добавлен с ID: $accountId")
+
             } catch (e: Exception) {
-                _error.value = "Ошибка: ${e.message}"
+                println("❌ [ProfileViewModel] Ошибка добавления аккаунта: ${e.message}")
+                e.printStackTrace()
             }
         }
     }
@@ -205,21 +265,17 @@ class ProfileViewModel @Inject constructor(
      * Создать дефолтный профиль при первом запуске
      */
     private suspend fun createDefaultProfile() {
-        val defaultProfile = ProfileDomainModel(
-            id = generateProfileId(),
-            name = "Моя недвижимость",
-            icon = "🏠",
-            isDefault = true
-        )
-        repository.saveProfile(defaultProfile)
-    }
+        try {
+            val profileId = repository.createProfile("Моя недвижимость")
+            //                        ↑ Новый метод (генерирует ID сам)
+            println("✅ Создан дефолтный профиль с ID: $profileId")
 
-    /**
-     * Генерация уникального ID для профиля
-     *
-     * Использует timestamp + random для уникальности
-     */
-    private fun generateProfileId(): String {
-        return "profile_${System.currentTimeMillis()}_${(0..999).random()}"
+        } catch (e: IllegalArgumentException) {
+            // Профиль с таким именем уже существует (не должно произойти)
+            println("⚠️ Дефолтный профиль уже существует: ${e.message}")
+        } catch (e: Exception) {
+            println("❌ Ошибка создания дефолтного профиля: ${e.message}")
+            _error.value = "Не удалось создать профиль"
+        }
     }
 }

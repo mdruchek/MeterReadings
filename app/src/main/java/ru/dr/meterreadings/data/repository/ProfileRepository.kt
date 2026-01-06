@@ -1,11 +1,13 @@
 package ru.dr.meterreadings.data.repository
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import ru.dr.meterreadings.data.local.dao.ProfileDao
 import ru.dr.meterreadings.data.local.entities.toDomain
 import ru.dr.meterreadings.data.local.entities.toEntity
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -17,10 +19,15 @@ import javax.inject.Singleton
  *
  * @Inject - Hilt автоматически создаст и передаст ProfileDao
  * @Singleton - один экземпляр на всё приложение
+ * Отвечает за:
+ * - CRUD операции с профилями
+ * - Преобразование Entity ↔ Domain
+ * - Бизнес-логику (генерация ID, валидация)
  */
 @Singleton
 class ProfileRepository @Inject constructor(
-    private val profileDao: ProfileDao  // Hilt передаст автоматически
+    private val profileDao: ProfileDao,  // Hilt передаст автоматически
+    private val accountRepository: AccountRepository
 ) {
 
     // ========================================
@@ -36,46 +43,17 @@ class ProfileRepository @Inject constructor(
      *
      * Когда БД изменится → Flow автоматически обновится → UI перерисуется!
      */
-    fun getAllProfilesFlow(): Flow<List<ProfileDomainModel>> {
-        return profileDao.getAllFlow()
-            .map { entities ->  // List<ProfileEntity>
-                entities.map { it.toDomain() }  // List<ProfileDomainModel>
-            }
-    }
-
-    /**
-     * Получить все профили (одноразово, без автообновления)
-     *
-     * suspend - выполняется асинхронно в корутине
-     */
-    suspend fun getAllProfiles(): List<ProfileDomainModel> {
-        val entities = profileDao.getAll()  // List<ProfileEntity> из БД
-        return entities.map { it.toDomain() }  // Конвертируем в DomainModel
-    }
-
-    /**
-     * Получить профиль по ID
-     *
-     * Возвращает null если профиль не найден
-     */
-    suspend fun getProfileById(id: String): ProfileDomainModel? {
-        val entity = profileDao.getById(id)  // ProfileEntity? из БД
-        return entity?.toDomain()  // Конвертируем в DomainModel (или null)
-    }
-
-    /**
-     * Получить профиль по умолчанию
-     */
-    suspend fun getDefaultProfile(): ProfileDomainModel? {
-        val entity = profileDao.getDefault()
-        return entity?.toDomain()
+    fun getAllProfiles(): Flow<List<ProfileDomainModel>> {
+        return profileDao.getAll().map { entities ->
+            entities.map { it.toDomain() }
+        }
     }
 
     /**
      * Получить профиль по ID как Flow (с автообновлением)
      */
-    fun getProfileByIdFlow(id: String): Flow<ProfileDomainModel?> {
-        return profileDao.getByIdFlow(id)
+    fun getProfileById(id: String): Flow<ProfileDomainModel?> {
+        return profileDao.getById(id)
             .map { entity -> entity?.toDomain() }
     }
 
@@ -84,42 +62,83 @@ class ProfileRepository @Inject constructor(
     // ========================================
 
     /**
-     * Сохранить новый профиль или обновить существующий
+     * Добавить новый профиль
      *
-     * ProfileDomainModel (из ViewModel)
-     *   ↓ toEntity()
-     * ProfileEntity → вставка в БД
+     * Генерирует UUID, проверяет дубликаты, сохраняет в БД
+     * Возвращает ID созданного профиля
      */
-    suspend fun saveProfile(profile: ProfileDomainModel) {
-        println("💾 Сохраняем профиль: ${profile.name}")
-        val entity = profile.toEntity(
+    suspend fun createProfile(name: String, icon: String? = null): String {
+        // Проверка: не существует ли профиль с таким именем
+        val exists = profileDao.existsByName(name)
+        if (exists) {
+            throw IllegalArgumentException("Profile with name '$name' already exists")
+        }
+
+        // Создаём DomainModel с новым ID
+        val domainModel = ProfileDomainModel(
+            id = UUID.randomUUID().toString(),  // Генерируем уникальный ID
+            name = name,
+            icon = icon
+        )
+
+        // Конвертируем в Entity и сохраняем
+        val entity = domainModel.toEntity(
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
-        profileDao.insert(entity)  // Вставка в БД
-        println("✅ Профиль сохранён!")
+
+        profileDao.insert(entity)
+
+        return domainModel.id  // Возвращаем ID для навигации
     }
 
     /**
-     * Обновить существующий профиль
+     * Обновить профиль (универсальный метод)
      *
-     * Нужно сначала получить из БД (для createdAt), потом обновить
+     * Использует существующий createdAt, обновляет остальные поля
+     * Для изменения только имени удобнее использовать updateProfileName()
      */
     suspend fun updateProfile(profile: ProfileDomainModel) {
-        // Получаем старую запись из БД
-        val oldEntity = profileDao.getById(profile.id)
+        // Получаем текущий профиль для сохранения createdAt
+        val existingEntity = profileDao.getById(profile.id).first()
+            ?: throw IllegalArgumentException("Profile not found")
 
-        if (oldEntity != null) {
-            // Создаём обновлённую Entity с новым updatedAt
-            val updatedEntity = profile.toEntity(
-                createdAt = oldEntity.createdAt,  // Сохраняем старую дату создания
-                updatedAt = System.currentTimeMillis()  // Новая дата обновления
-            )
-            profileDao.update(updatedEntity)
-        } else {
-            // Если профиль не найден - создаём новый
-            saveProfile(profile)
+        // Создаём обновлённую Entity
+        val updatedEntity = profile.toEntity(
+            createdAt = existingEntity.createdAt,  // Сохраняем старое время создания
+            updatedAt = System.currentTimeMillis()  // Новое время обновления
+        )
+
+        profileDao.update(updatedEntity)
+    }
+
+    /**
+     * Обновить имя профиля (быстрый метод с валидацией)
+     *
+     * Проверяет уникальность имени
+     * Для универсального обновления используйте updateProfile()
+     */
+    suspend fun updateProfileName(profileId: String, newName: String) {
+        // Получаем текущий профиль
+        val entity = profileDao.getById(profileId).first()
+            ?: throw IllegalArgumentException("Profile not found")
+
+        // Валидация: проверяем что новое имя не занято ДРУГИМ профилем
+        val nameExists = profileDao.existsByName(newName)
+        if (nameExists && entity.name != newName) {
+            // nameExists - имя существует в БД
+            // entity.name != newName - это ДРУГОЙ профиль (не текущий)
+            throw IllegalArgumentException("Profile with name '$newName' already exists")
         }
+
+        // Обновляем только name и updatedAt
+        val updated = entity.copy(
+            name = newName,
+            updatedAt = System.currentTimeMillis()
+            // id, createdAt - остаются прежними (copy не указали)
+        )
+
+        profileDao.update(updated)
     }
 
     // ========================================
@@ -127,10 +146,13 @@ class ProfileRepository @Inject constructor(
     // ========================================
 
     /**
-     * Удалить профиль по ID
+     * Удалить профиль
+     *
+     * Также удаляет все связанные accounts благодаря CASCADE в ForeignKey
+     * (при удалении профиля Room автоматически удалит все его аккаунты)
      */
-    suspend fun deleteProfile(id: String) {
-        profileDao.deleteById(id)
+    suspend fun deleteProfile(profileId: String) {
+        profileDao.deleteById(profileId)
     }
 
     /**
@@ -145,20 +167,28 @@ class ProfileRepository @Inject constructor(
     // ========================================
 
     /**
-     * Установить профиль по умолчанию
-     *
-     * @Transaction в DAO гарантирует атомарность:
-     * - Сначала сбросит isDefault у всех
-     * - Потом установит у нужного
-     */
-    suspend fun setDefaultProfile(profileId: String) {
-        profileDao.setDefault(profileId)
-    }
-
-    /**
      * Получить количество профилей
      */
     suspend fun getProfileCount(): Int {
         return profileDao.getCount()
     }
+
+    /**
+     * Проверить существование профиля с таким именем
+     *
+     * Используется для валидации перед добавлением/обновлением
+     */
+    suspend fun profileExists(name: String): Boolean {
+        return profileDao.existsByName(name)
+    }
+
+    /**
+     * Получить количество аккаунтов в профиле
+     *
+     * Делегирует запрос в AccountRepository
+     */
+    suspend fun getAccountCountForProfile(profileId: String): Int {
+        return accountRepository.getAccountCount(profileId)
+    }
+
 }

@@ -13,16 +13,11 @@ import ru.dr.meterreadings.models.domain.ProfileDomainModel
 data class ProfileEntity(
     @PrimaryKey
     val id: String,
-
     val name: String,
-
     val icon: String? = null,
-
     val isDefault: Boolean = false,
-
     // Технические поля (только в БД)
     val createdAt: Long,
-
     val updatedAt: Long
 )
 
@@ -37,8 +32,7 @@ fun ProfileEntity.toDomain(): ProfileDomainModel {
     return ProfileDomainModel(
         id = id,
         name = name,
-        icon = icon,
-        isDefault = isDefault
+        icon = icon
     )
 }
 
@@ -53,7 +47,6 @@ fun ProfileDomainModel.toEntity(
         id = id,
         name = name,
         icon = icon,
-        isDefault = isDefault,
         createdAt = createdAt,
         updatedAt = updatedAt
     )

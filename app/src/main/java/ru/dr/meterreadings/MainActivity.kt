@@ -82,8 +82,18 @@ fun MeterReadingsApp() {
                 AddAccountWizard(
                     profile = loadedProfile.profile,  // Передаем ProfileDomainModel
                     onAccountAdded = { newAccount ->
-                        // TODO: Сохранить аккаунт через ViewModel/Repository
-                        println("✅ Добавлен аккаунт: ${newAccount.account.accountNumber}")
+                        // =====================================================
+                        // СОХРАНЯЕМ АККАУНТ В БД ЧЕРЕЗ VIEWMODEL!
+                        // =====================================================
+                        println("✅ [MainActivity] Добавлен аккаунт: ${newAccount.account.accountNumber}")
+
+                        viewModel.addAccount(
+                            profileId = profileId,
+                            providerId = newAccount.account.providerId,
+                            accountNumber = newAccount.account.accountNumber
+                        )
+
+                        println("✅ [MainActivity] Аккаунт добавлен, возвращаемся назад")
 
                         // Просто возвращаемся назад на ProfileDetailScreen
                         navController.popBackStack()

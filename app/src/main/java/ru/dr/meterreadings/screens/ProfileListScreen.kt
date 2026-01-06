@@ -193,16 +193,6 @@ fun ProfileCard(
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f)
                     )
-
-                    // Бейдж "По умолчанию"
-                    if (profile.profile.isDefault) {
-                        Text(
-                            text = "По умолчанию",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(end = 8.dp)
-                        )
-                    }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
