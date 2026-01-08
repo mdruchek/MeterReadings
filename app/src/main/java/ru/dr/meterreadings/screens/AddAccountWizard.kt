@@ -20,59 +20,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.dr.meterreadings.models.domain.AuthType
 import ru.dr.meterreadings.models.domain.AccountDomainModel
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
 import ru.dr.meterreadings.models.domain.ProviderDomainModel
+import ru.dr.meterreadings.models.domain.Type
 import ru.dr.meterreadings.models.ui.AccountUiModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
+import ru.dr.meterreadings.viewmodels.AddAccountViewModel
 
 @Composable
 fun AddAccountWizard(
     profile: ProfileDomainModel,
     onAccountAdded: (AccountUiModel) -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    viewModel: AddAccountViewModel = hiltViewModel()
 ) {
+    // =====================================================
+    // STATE
+    // =====================================================
+
+    // Локальное состояние мастера
     var currentStep by remember { mutableStateOf(1) }
-    var searchQuery by remember { mutableStateOf("") }
     var accountNumber by remember { mutableStateOf("") }
 
-    val allProviders = remember {
-        listOf(
-            ProviderUiModel(
-                ProviderDomainModel(
-                    id = "mosvodokanal",
-                    name = "🏠 Мосводоканал",
-                    type = "Вода",
-                    baseUrl = "https://mosvodokanal.me/",
-                    authType = AuthType.API_KEY
-                )
-            ),
-            ProviderUiModel(
-                ProviderDomainModel(
-                    id = "mosenergosby",
-                    name = "⚡ Мосэнергосбыт",
-                    type = "Электричество",
-                    baseUrl = "https://mosenergosby.me/",
-                    authType = AuthType.API_KEY
-                )
-            ),
-            ProviderUiModel(
-                ProviderDomainModel(
-                    id = "mosoblgaz",
-                    name = "🔥 Мособлгаз",
-                    type = "Газ",
-                    baseUrl = "https://mosoblgaz.me/",
-                    authType = AuthType.API_KEY
-                )
-            )
-        )
-    }
-
-    val filteredProviders = allProviders.filter { provider ->
-        provider.provider.name.contains(searchQuery, ignoreCase = true) ||
-                provider.provider.type.contains(searchQuery, ignoreCase = true)
-    }
+    // ✅ НОВОЕ - состояние из ViewModel (провайдеры из БД)
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val filteredProviders by viewModel.filteredProviders.collectAsStateWithLifecycle()
+    val selectedProviderId by viewModel.selectedProviderId.collectAsStateWithLifecycle()
+    val selectedProvider by viewModel.getSelectedProvider().collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -106,11 +84,17 @@ fun AddAccountWizard(
                         1 -> currentStep = 2
                         2 -> if (accountNumber.isNotBlank()) currentStep = 3
                         3 -> {
+                            // ✅ НОВОЕ - проверяем что провайдер выбран
+                            if (selectedProviderId == null) {
+                                println("❌ Провайдер не выбран!")
+                                return@BottomNavigationBar
+                            }
+
                             val newAccount = AccountUiModel(
                                 account = AccountDomainModel(
                                     id = System.currentTimeMillis().toString(),
                                     profileId = profile.id,
-                                    providerId = "mosvodokanal",
+                                    providerId = selectedProviderId!!,
                                     accountNumber = accountNumber
                                 ),
                                 address = "ул. Ленина, д. 5, кв. 12"
@@ -135,7 +119,7 @@ fun AddAccountWizard(
                     item {
                         OutlinedTextField(
                             value = searchQuery,
-                            onValueChange = { searchQuery = it },
+                            onValueChange = { viewModel.updateSearchQuery(it) },
                             label = { Text("Поиск компании") },
                             leadingIcon = { Icon(Icons.Default.Search, null) },
                             modifier = Modifier.fillMaxWidth(),
@@ -147,8 +131,9 @@ fun AddAccountWizard(
                     items(filteredProviders) { provider ->
                         ProviderCard(
                             provider = provider,
-                            isSelected = false,
+                            isSelected = provider.provider.id == selectedProviderId,
                             onClick = {
+                                viewModel.selectProvider(provider.provider.id)
                                 currentStep = 2
                             }
                         )
@@ -158,8 +143,16 @@ fun AddAccountWizard(
                 2 -> {
                     item {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val providerName = selectedProvider?.name ?: "Провайдер"
+                            // Иконка по типу провайдера (используем enum!)
+                            val providerEmoji = when(selectedProvider?.type) {
+                                Type.WaterSupply -> "💧"
+                                Type.GasSupply -> "🔥"
+                                Type.ElectricitySupply -> "⚡"
+                                null -> "📋"
+                            }
                             Text(
-                                text = "🏠 Мосводоканал",
+                                text = "$providerEmoji $providerName",
                                 style = MaterialTheme.typography.titleLarge
                             )
                             Spacer(Modifier.height(8.dp))
@@ -263,7 +256,7 @@ fun ProviderCard(
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = provider.provider.type,
+                    text = provider.provider.type.name,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import ru.dr.meterreadings.viewmodels.AddAccountViewModel
 import ru.dr.meterreadings.viewmodels.ProfileViewModel
 
 /**
@@ -30,6 +31,7 @@ fun AddAccountScreen(
     profileUi?.let { loadedProfile ->
         AddAccountWizard(
             profile = loadedProfile.profile,
+            viewModel = hiltViewModel(),
             onAccountAdded = { newAccount ->
                 // ✅ БИЗНЕС-ПРОЦЕСС НА СТРАНИЦЕ (как в Django views)
                 viewModel.addAccount(

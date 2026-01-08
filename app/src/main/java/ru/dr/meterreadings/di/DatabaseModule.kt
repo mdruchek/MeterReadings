@@ -9,6 +9,7 @@ import dagger.hilt.components.SingletonComponent
 import ru.dr.meterreadings.data.local.AppDatabase
 import ru.dr.meterreadings.data.local.dao.AccountDao
 import ru.dr.meterreadings.data.local.dao.ProfileDao
+import ru.dr.meterreadings.data.local.dao.ProviderDao
 import javax.inject.Singleton
 
 /**
@@ -19,7 +20,7 @@ import javax.inject.Singleton
  */
 @Module
 @InstallIn(SingletonComponent::class)
-object DatabaseModule {
+object  DatabaseModule {
 
     /**
      * Предоставляет AppDatabase (Singleton)
@@ -52,5 +53,14 @@ object DatabaseModule {
     @Singleton
     fun provideAccountDao(database: AppDatabase): AccountDao {
         return database.accountDao()
+    }
+
+    /**
+     * Предоставляет ProviderDao
+     */
+    @Provides
+    @Singleton
+    fun provideProviderDao(database: AppDatabase): ProviderDao {
+        return database.providerDao()
     }
 }

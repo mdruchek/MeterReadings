@@ -9,17 +9,23 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import ru.dr.meterreadings.models.domain.AccountDomainModel
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
+import ru.dr.meterreadings.models.domain.ProviderDomainModel
 import ru.dr.meterreadings.data.repository.ProfileRepository
 import ru.dr.meterreadings.data.repository.AccountRepository
+import ru.dr.meterreadings.data.repository.ProviderRepository
 import javax.inject.Inject
 
 @HiltViewModel
 class ProfileDetailViewModel @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val accountRepository: AccountRepository,
+    private val providerRepository: ProviderRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -32,6 +38,30 @@ class ProfileDetailViewModel @Inject constructor(
 
     private val _accounts = MutableStateFlow<List<AccountDomainModel>>(emptyList())
     val accounts: StateFlow<List<AccountDomainModel>> = _accounts.asStateFlow()
+
+    // =====================================================
+    // ПРОВАЙДЕРЫ из БД (автообновление)
+    // =====================================================
+
+    /**
+     * Map провайдеров для быстрого поиска по ID
+     *
+     * Формат: { "mosvodokanal" -> ProviderDomainModel(...), ... }
+     *
+     * Автоматически обновляется при изменениях в БД благодаря Flow
+     */
+    val providers: StateFlow<Map<String, ProviderDomainModel>> = providerRepository
+        .getAllProviders()  // Flow<List<ProviderDomainModel>> из Repository
+        .map { providersList ->
+            // Конвертируем List в Map для быстрого поиска по ID
+            // [Provider1, Provider2] → { "id1" -> Provider1, "id2" -> Provider2 }
+            providersList.associateBy { it.id }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyMap()  // Пустая Map пока БД не ответила
+        )
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()

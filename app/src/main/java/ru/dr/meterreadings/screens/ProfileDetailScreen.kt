@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.hilt.navigation.compose.hiltViewModel
 import ru.dr.meterreadings.viewmodels.ProfileDetailViewModel  // ← ИЗМЕНИЛИ!
@@ -22,6 +23,7 @@ import ru.dr.meterreadings.models.ui.AccountUiModel
 import ru.dr.meterreadings.models.domain.AccountDomainModel
 import ru.dr.meterreadings.models.domain.ProviderDomainModel
 import ru.dr.meterreadings.models.domain.AuthType
+import ru.dr.meterreadings.models.domain.Type
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +51,7 @@ fun ProfileDetailScreen(
     val accounts by viewModel.accounts.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
+    val providers by viewModel.providers.collectAsStateWithLifecycle()
 
     // Обработка ошибок
     LaunchedEffect(error) {
@@ -86,38 +89,6 @@ fun ProfileDetailScreen(
             }
         }
         return
-    }
-
-    // =====================================================
-    // СПРАВОЧНИК ПРОВАЙДЕРОВ (пока моковый)
-    // =====================================================
-    val providers = remember {
-        mapOf(
-            "provider_1" to ProviderDomainModel(
-                id = "provider_1",
-                name = "Управляющая компания №1",
-                type = "ЖКХ",
-                logoUrl = null,
-                baseUrl = "https://uk1.ru",
-                authType = AuthType.FORM_CSRF
-            ),
-            "provider_2" to ProviderDomainModel(
-                id = "provider_2",
-                name = "Энергосбыт",
-                type = "Электричество",
-                logoUrl = null,
-                baseUrl = "https://energosbyt.ru",
-                authType = AuthType.API_KEY
-            ),
-            "provider_3" to ProviderDomainModel(
-                id = "provider_3",
-                name = "Газпром Межрегионгаз",
-                type = "Газ",
-                logoUrl = null,
-                baseUrl = "https://gazprom.ru",
-                authType = AuthType.AUTH_REQUIRED
-            )
-        )
     }
 
     // =====================================================
@@ -363,12 +334,12 @@ fun AccountCard(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    // ✅ ИЗМЕНЕНИЕ: Используем enum Type вместо строк
     val icon = when (provider.type) {
-        "ЖКХ" -> "🏢"
-        "Электричество" -> "⚡"
-        "Газ" -> "🔥"
-        "Водоснабжение" -> "💧"
-        else -> "📋"
+        Type.WaterSupply -> "💧"
+        Type.ElectricitySupply -> "⚡"
+        Type.GasSupply -> "🔥"
+        // Если добавите новые типы в enum, компилятор заставит обработать их здесь!
     }
 
     // ✅ STATE - показывать/скрывать меню с тремя точками
@@ -395,7 +366,7 @@ fun AccountCard(
             Column(modifier = Modifier.weight(1f)) {
                 // Тип провайдера (ЖКХ, Газ, etc)
                 Text(
-                    text = provider.type,
+                    text = provider.type.name,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
                 )

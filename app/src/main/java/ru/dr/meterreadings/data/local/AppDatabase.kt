@@ -6,8 +6,10 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import ru.dr.meterreadings.data.local.dao.AccountDao
 import ru.dr.meterreadings.data.local.dao.ProfileDao
+import ru.dr.meterreadings.data.local.dao.ProviderDao
 import ru.dr.meterreadings.data.local.entities.AccountEntity
 import ru.dr.meterreadings.data.local.entities.ProfileEntity
+import ru.dr.meterreadings.data.local.entities.ProviderEntity
 
 /**
  * Главная база данных приложения
@@ -20,9 +22,11 @@ import ru.dr.meterreadings.data.local.entities.ProfileEntity
  * Этот класс - Singleton (один экземпляр на всё приложение).
  */
 @Database(
+    // Список всех таблиц (Entity)
     entities = [
-        ProfileEntity::class,  // Список всех таблиц (Entity)
+        ProfileEntity::class,
         AccountEntity::class,
+        ProviderEntity::class,
     ],
     version = 1,  // Версия БД (при изменении схемы увеличивать)
     exportSchema = false  // Не экспортировать схему БД (для простоты)
@@ -41,6 +45,11 @@ abstract class AppDatabase : RoomDatabase() {
      * Room автоматически создаст реализацию
      */
     abstract fun accountDao(): AccountDao
+
+    /**
+     * Получить DAO для работы с провайдерами
+     */
+    abstract fun providerDao(): ProviderDao
 
     companion object {
         /**
