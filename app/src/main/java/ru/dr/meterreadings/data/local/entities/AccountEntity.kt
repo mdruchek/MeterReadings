@@ -46,7 +46,17 @@ data class AccountEntity(
     val password: String? = null,
     // Технические поля
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    // ========================================
+    // Дополнительные поля для провайдеров
+    // ========================================
+
+    /**
+     * ID региона провайдера (для КВЦ)
+     *
+     * Nullable для провайдеров без регионов
+     */
+    val regionId: Int? = null,
 )
 
 // ========================================
@@ -61,7 +71,8 @@ fun AccountEntity.toDomain(): AccountDomainModel {
         id = id,
         profileId = profileId,
         providerId = providerId,
-        accountNumber = accountNumber
+        accountNumber = accountNumber,
+        regionId = regionId
     )
 }
 
@@ -79,6 +90,7 @@ fun AccountDomainModel.toEntity(
         profileId = profileId,
         providerId = providerId,
         accountNumber = accountNumber,
+        regionId = regionId,
         login = login,
         password = password,
         createdAt = createdAt,

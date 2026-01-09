@@ -3,8 +3,8 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.hilt.android)
-    kotlin("kapt")
-    // НЕ добавляй ksp, используем только kapt
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)  // ← KSP
 }
 
 android {
@@ -34,17 +34,15 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
     buildFeatures {
         compose = true
-    }
-    composeOptions {
-        // kotlinCompilerExtensionVersion = "1.5.8"
     }
     packaging {
         resources {
@@ -56,7 +54,7 @@ android {
 dependencies {
     // Hilt - Dependency Injection
     implementation(libs.hilt.android)
-    kapt(libs.hilt.compiler)
+    ksp("com.google.dagger:hilt-compiler:2.52")  // ← ksp
     implementation(libs.hilt.navigation.compose)
 
     // Core Android
@@ -65,7 +63,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
 
-    // Compose BOM (управляет версиями Compose)
+    // Compose BOM
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
@@ -76,11 +74,24 @@ dependencies {
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.8.1")
 
-    // Room - локальная база данных SQLite
+    // Room
     val room_version = "2.6.1"
     implementation("androidx.room:room-runtime:$room_version")
-    implementation("androidx.room:room-ktx:$room_version")  // Coroutines support
-    kapt("androidx.room:room-compiler:$room_version")       // Кодогенерация
+    implementation("androidx.room:room-ktx:$room_version")
+    ksp("androidx.room:room-compiler:$room_version")  // ← ksp
+
+    // Ktor
+    implementation("io.ktor:ktor-client-android:2.3.7")
+    implementation("io.ktor:ktor-client-content-negotiation:2.3.7")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.7")
+    implementation("io.ktor:ktor-client-logging:2.3.7")
+    implementation("io.ktor:ktor-client-core:2.3.7")
+
+    // Kotlinx Serialization
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
+
+    // Desugaring для поддержки java.time на старых Android
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
     // Debug
     debugImplementation(libs.androidx.ui.tooling)

@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import ru.dr.meterreadings.data.repository.ProfileRepository
 import ru.dr.meterreadings.data.repository.AccountRepository
+import ru.dr.meterreadings.data.repository.ProviderRepository
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
 import ru.dr.meterreadings.models.ui.ProfileUiModel
 import javax.inject.Inject
@@ -20,6 +21,7 @@ import kotlin.Int
  */
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
+    private val providerRepository: ProviderRepository,
     private val repository: ProfileRepository,  // Hilt передаст автоматически
     private val accountRepository: AccountRepository
 ) : ViewModel() {
@@ -276,6 +278,29 @@ class ProfileViewModel @Inject constructor(
         } catch (e: Exception) {
             println("❌ Ошибка создания дефолтного профиля: ${e.message}")
             _error.value = "Не удалось создать профиль"
+        }
+    }
+
+    /**
+     * 🧪 ТЕСТОВЫЙ метод для проверки загрузки конфигураций БД региона
+     */
+    fun testLoadKvcLocations() {
+        viewModelScope.launch {
+            println("🧪 [ViewModel] ТЕСТ: Загружаем конфигурации БД для региона 30...")
+
+            val result = providerRepository.getKvcLocationsForRegion(regionId = 30)
+
+            result.onSuccess { locations ->
+                println("✅ [ViewModel] Успех! Получено конфигураций: ${locations.size}")
+                locations.forEach { location ->
+                    println("   💾 Server: ${location.server}, DB: ${location.dbName}, User: ${location.idUser}")
+                }
+            }
+
+            result.onFailure { error ->
+                println("❌ [ViewModel] Ошибка: ${error.message}")
+                error.printStackTrace()
+            }
         }
     }
 }
