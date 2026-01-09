@@ -280,27 +280,4 @@ class ProfileViewModel @Inject constructor(
             _error.value = "Не удалось создать профиль"
         }
     }
-
-    /**
-     * 🧪 ТЕСТОВЫЙ метод для проверки загрузки конфигураций БД региона
-     */
-    fun testLoadKvcLocations() {
-        viewModelScope.launch {
-            println("🧪 [ViewModel] ТЕСТ: Загружаем конфигурации БД для региона 30...")
-
-            val result = providerRepository.getKvcLocationsForRegion(regionId = 30)
-
-            result.onSuccess { locations ->
-                println("✅ [ViewModel] Успех! Получено конфигураций: ${locations.size}")
-                locations.forEach { location ->
-                    println("   💾 Server: ${location.server}, DB: ${location.dbName}, User: ${location.idUser}")
-                }
-            }
-
-            result.onFailure { error ->
-                println("❌ [ViewModel] Ошибка: ${error.message}")
-                error.printStackTrace()
-            }
-        }
-    }
 }

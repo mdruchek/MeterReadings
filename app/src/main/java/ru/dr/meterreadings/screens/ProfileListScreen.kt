@@ -144,12 +144,6 @@ fun ProfileListScreen(
             }
         )
     }
-    // ✅ ВРЕМЕННАЯ кнопка для теста
-    Button(onClick = {
-        viewModel.testLoadKvcLocations()
-    }) {
-        Text("🧪 Тест: Загрузить регионы КВЦ")
-    }
 }
 
 /**

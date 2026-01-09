@@ -15,7 +15,7 @@ import javax.inject.Singleton
 /**
  * Hilt Module для предоставления Database и DAO
  *
- * Использует AppDatabase.getInstance() для гарантии что
+ * Использует AppDatabase.getInstance() для гарантии, что
  * создаётся ОДИН экземпляр БД (независимо от способа доступа)
  */
 @Module
