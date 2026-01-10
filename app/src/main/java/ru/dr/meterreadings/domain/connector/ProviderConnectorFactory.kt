@@ -1,12 +1,10 @@
 package ru.dr.meterreadings.domain.connector
 
 import ru.dr.meterreadings.data.repository.providers.kvc.KvcConnector
+import ru.dr.meterreadings.domain.constants.ProviderIds
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Фабрика коннекторов провайдеров
- */
 @Singleton
 class ProviderConnectorFactory @Inject constructor(
     private val kvcConnector: KvcConnector
@@ -14,8 +12,11 @@ class ProviderConnectorFactory @Inject constructor(
 
     fun getConnector(providerId: Long): ProviderConnector {
         return when (providerId) {
-            2L -> kvcConnector
-            else -> throw IllegalArgumentException("Провайдер с ID=$providerId не поддерживается")
+            ProviderIds.KVC -> kvcConnector
+            else -> throw IllegalArgumentException(
+                "Провайдер с ID=$providerId не поддерживается"
+            )
         }
     }
 }
+

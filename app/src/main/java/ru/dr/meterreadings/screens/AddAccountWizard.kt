@@ -1,5 +1,4 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
-
 package ru.dr.meterreadings.screens
 
 import androidx.compose.foundation.background
@@ -22,10 +21,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import ru.dr.meterreadings.models.domain.AuthType
 import ru.dr.meterreadings.models.domain.AccountDomainModel
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
-import ru.dr.meterreadings.models.domain.ProviderDomainModel
 import ru.dr.meterreadings.models.domain.Type
 import ru.dr.meterreadings.models.ui.AccountUiModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
@@ -42,15 +39,21 @@ fun AddAccountWizard(
     // STATE
     // =====================================================
 
-    // Локальное состояние мастера
     var currentStep by remember { mutableStateOf(1) }
     var accountNumber by remember { mutableStateOf("") }
 
-    // ✅ НОВОЕ - состояние из ViewModel (провайдеры из БД)
+    // State из ViewModel
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filteredProviders by viewModel.filteredProviders.collectAsStateWithLifecycle()
     val selectedProviderId by viewModel.selectedProviderId.collectAsStateWithLifecycle()
     val selectedProvider by viewModel.getSelectedProvider().collectAsStateWithLifecycle()
+
+    val providerHasRegions by viewModel.providerHasRegions.collectAsStateWithLifecycle()
+    val regions by viewModel.regions.collectAsStateWithLifecycle()
+    val selectedRegionId by viewModel.selectedRegionId.collectAsStateWithLifecycle()
+
+    val searchedAddress by viewModel.searchedAddress.collectAsStateWithLifecycle()
+    val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -72,34 +75,50 @@ fun AddAccountWizard(
                 }
             )
         },
-        // ← ВОТ СЮДА переносим bottomBar!
         bottomBar = {
             BottomNavigationBar(
                 currentStep = currentStep,
                 totalSteps = 3,
                 canGoBack = currentStep > 1,
-                accountNumberValid = accountNumber.isNotBlank(),
+                canGoNext = when(currentStep) {
+                    1 -> selectedProviderId != null
+                    2 -> {
+                        val hasAccountNumber = accountNumber.isNotBlank()
+                        val hasRegionIfNeeded = !providerHasRegions || selectedRegionId != null
+                        hasAccountNumber && hasRegionIfNeeded
+                    }
+                    3 -> searchedAddress != null
+                    else -> false
+                },
                 onNext = {
                     when(currentStep) {
                         1 -> currentStep = 2
-                        2 -> if (accountNumber.isNotBlank()) currentStep = 3
-                        3 -> {
-                            // ✅ НОВОЕ - проверяем что провайдер выбран
-                            if (selectedProviderId == null) {
-                                println("❌ Провайдер не выбран!")
-                                return@BottomNavigationBar
-                            }
-
-                            val newAccount = AccountUiModel(
-                                account = AccountDomainModel(
-                                    id = System.currentTimeMillis().toString(),
-                                    profileId = profile.id,
+                        2 -> {
+                            // Поиск адреса
+                            if (selectedProviderId != null && accountNumber.isNotBlank()) {
+                                viewModel.searchAccountAddress(
                                     providerId = selectedProviderId!!,
-                                    accountNumber = accountNumber
-                                ),
-                                address = "ул. Ленина, д. 5, кв. 12"
-                            )
-                            onAccountAdded(newAccount)
+                                    accountNumber = accountNumber,
+                                    regionId = selectedRegionId
+                                )
+                                currentStep = 3
+                            }
+                        }
+                        3 -> {
+                            // Сохранение
+                            if (selectedProviderId != null && searchedAddress != null) {
+                                val newAccount = AccountUiModel(
+                                    account = AccountDomainModel(
+                                        id = System.currentTimeMillis().toString(),
+                                        profileId = profile.id,
+                                        providerId = selectedProviderId!!,
+                                        accountNumber = accountNumber,
+                                        regionId = selectedRegionId?.toIntOrNull()
+                                    ),
+                                    address = searchedAddress
+                                )
+                                onAccountAdded(newAccount)
+                            }
                         }
                     }
                 },
@@ -110,11 +129,14 @@ fun AddAccountWizard(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)  // ← Это важно!
+                .padding(paddingValues)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             when(currentStep) {
+                // ============================================
+                // ШАГ 1: Выбор провайдера
+                // ============================================
                 1 -> {
                     item {
                         OutlinedTextField(
@@ -134,86 +156,142 @@ fun AddAccountWizard(
                             isSelected = provider.provider.id == selectedProviderId,
                             onClick = {
                                 viewModel.selectProvider(provider.provider.id)
-                                currentStep = 2
                             }
                         )
                     }
                 }
 
+                // ============================================
+                // ШАГ 2: Ввод ЛС + выбор региона (если нужно)
+                // ============================================
                 2 -> {
                     item {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             val providerName = selectedProvider?.name ?: "Провайдер"
-                            // Иконка по типу провайдера (используем enum!)
                             val providerEmoji = when(selectedProvider?.type) {
                                 Type.WaterSupply -> "💧"
                                 Type.GasSupply -> "🔥"
                                 Type.ElectricitySupply -> "⚡"
                                 null -> "📋"
                             }
+
                             Text(
                                 text = "$providerEmoji $providerName",
                                 style = MaterialTheme.typography.titleLarge
                             )
-                            Spacer(Modifier.height(8.dp))
 
+                            Spacer(Modifier.height(8.dp))
                             Text(
-                                text = "Введите лицевой счет",
+                                text = "Введите данные",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
 
+                    // Выбор региона (если провайдер имеет регионы)
+                    if (providerHasRegions && regions.isNotEmpty()) {
+                        item {
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                text = "Регион",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+
+                        items(regions) { region ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.selectRegion(region.id) },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (region.id == selectedRegionId)
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    else
+                                        MaterialTheme.colorScheme.surface
+                                )
+                            ) {
+                                Text(
+                                    text = region.name,
+                                    modifier = Modifier.padding(16.dp),
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                            }
+                        }
+                    }
+
+                    // Ввод лицевого счёта
                     item {
                         Spacer(Modifier.height(24.dp))
+                        Text(
+                            text = "Лицевой счёт",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.height(8.dp))
+
                         OutlinedTextField(
                             value = accountNumber,
                             onValueChange = { accountNumber = it },
-                            label = { Text("Лицевой счет") },
+                            label = { Text("Номер счёта") },
                             placeholder = { Text("123456789") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
-                        Spacer(Modifier.height(16.dp))
                     }
                 }
 
+                // ============================================
+                // ШАГ 3: Подтверждение
+                // ============================================
                 3 -> {
                     item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp)
+                        if (isSearching) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                    Spacer(Modifier.width(12.dp))
+                                CircularProgressIndicator()
+                            }
+                        } else if (searchedAddress != null) {
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                        Spacer(Modifier.width(12.dp))
+                                        Text(
+                                            text = "Абонент найден!",
+                                            style = MaterialTheme.typography.titleMedium
+                                        )
+                                    }
+
+                                    Spacer(Modifier.height(16.dp))
                                     Text(
-                                        text = "Данные успешно загружены!",
-                                        style = MaterialTheme.typography.titleMedium
+                                        text = "📍 $searchedAddress\n" +
+                                                "🆔 Л/С: $accountNumber",
+                                        style = MaterialTheme.typography.bodyMedium
                                     )
                                 }
-
-                                Spacer(Modifier.height(16.dp))
+                            }
+                        } else {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer
+                                )
+                            ) {
                                 Text(
-                                    text = "🏠 Мосводоканал\n" +
-                                            "л/с 123456789\n\n" +
-                                            "📍 ул. Ленина, д. 5, кв. 12\n" +
-                                            "👤 Иванов И.И.\n\n" +
-                                            "✅ Загружено 2 счетчика\n" +
-                                            "💧 Холодная вода\n" +
-                                            "🔥 Горячая вода",
-                                    style = MaterialTheme.typography.bodyMedium
+                                    text = "❌ Абонент не найден",
+                                    modifier = Modifier.padding(16.dp),
+                                    color = MaterialTheme.colorScheme.onErrorContainer
                                 )
                             }
                         }
@@ -246,15 +324,17 @@ fun ProviderCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "http://",
+                text = "🏢",
                 style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.padding(end = 12.dp)
             )
+
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = provider.provider.name,
                     style = MaterialTheme.typography.titleMedium
                 )
+
                 Text(
                     text = provider.provider.type.name,
                     style = MaterialTheme.typography.bodySmall,
@@ -270,7 +350,7 @@ fun BottomNavigationBar(
     currentStep: Int,
     totalSteps: Int,
     canGoBack: Boolean,
-    accountNumberValid: Boolean,
+    canGoNext: Boolean,
     onNext: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -285,16 +365,14 @@ fun BottomNavigationBar(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Кнопка "Назад"
             if (canGoBack) {
                 TextButton(onClick = onBack) {
                     Text("Назад")
                 }
             } else {
-                Spacer(Modifier.width(48.dp))  // ← Чтобы выравнивание не прыгало
+                Spacer(Modifier.width(48.dp))
             }
 
-            // Прогресс шагов
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(totalSteps) { step ->
                     Box(
@@ -311,14 +389,9 @@ fun BottomNavigationBar(
                 }
             }
 
-            // Кнопка "Далее"
-            val nextEnabled = when(currentStep) {
-                2 -> accountNumberValid
-                else -> true
-            }
             TextButton(
                 onClick = onNext,
-                enabled = nextEnabled
+                enabled = canGoNext
             ) {
                 Text(
                     text = when(currentStep) {

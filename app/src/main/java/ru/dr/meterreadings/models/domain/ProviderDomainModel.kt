@@ -10,6 +10,7 @@ data class ProviderDomainModel(
 )
 
 enum class AuthType {
+    ACCOUNT_NUMBER,
     API_KEY,
     FORM_CSRF,
     AUTH_REQUIRED
