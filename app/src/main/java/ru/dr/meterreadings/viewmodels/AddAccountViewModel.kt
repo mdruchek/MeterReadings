@@ -6,28 +6,52 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import ru.dr.meterreadings.data.repository.ProviderRepository
-import ru.dr.meterreadings.domain.connector.HasRegions
+import ru.dr.meterreadings.domain.connector.HasRegions  // ← ДОБАВИТЬ
+import ru.dr.meterreadings.domain.connector.SearchAccount  // ← ДОБАВИТЬ
 import ru.dr.meterreadings.domain.connector.ProviderConnectorFactory
-import ru.dr.meterreadings.domain.connector.SearchAccount
 import ru.dr.meterreadings.models.domain.ProviderDomainModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
+import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import javax.inject.Inject
 
-/**
- * ViewModel для мастера добавления лицевого счёта
- *
- * Управляет:
- * - Загрузкой списка провайдеров из БД
- * - Поиском провайдеров по названию
- * - Выбором провайдера пользователем
- * - Загрузкой регионов (для провайдеров с HasRegions)
- * - Поиском адреса по лицевому счёту
- */
 @HiltViewModel
 class AddAccountViewModel @Inject constructor(
     private val providerRepository: ProviderRepository,
     private val connectorFactory: ProviderConnectorFactory
 ) : ViewModel() {
+
+    // =====================================================
+    // МОДЕЛЬ ОШИБКИ
+    // =====================================================
+
+    data class ErrorState(
+        val title: String,
+        val message: String
+    )
+
+    private val _errorState = MutableStateFlow<ErrorState?>(null)
+    val errorState: StateFlow<ErrorState?> = _errorState.asStateFlow()
+
+    private val _shouldResetToStep1 = MutableStateFlow(false)
+    val shouldResetToStep1: StateFlow<Boolean> = _shouldResetToStep1.asStateFlow()
+
+    fun showError(title: String, message: String) {
+        _errorState.value = ErrorState(title, message)
+        _shouldResetToStep1.value = true
+        println("❌ [AddAccountVM] Ошибка: $title - $message")
+    }
+
+    fun dismissError() {
+        _errorState.value = null
+    }
+
+    fun resetCompleted() {
+        _shouldResetToStep1.value = false
+        println("🔄 [AddAccountVM] Сброс завершён")
+    }
 
     // =====================================================
     // STATE - поисковый запрос
@@ -58,7 +82,6 @@ class AddAccountViewModel @Inject constructor(
         searchQuery
     ) { providers, query ->
         println("🔄 [AddAccountVM] Фильтрация: ${providers.size} провайдеров, запрос: '$query'")
-
         if (query.isBlank()) {
             providers.map { ProviderUiModel(it) }
         } else {
@@ -84,18 +107,12 @@ class AddAccountViewModel @Inject constructor(
     fun selectProvider(providerId: String) {
         _selectedProviderId.value = providerId
         println("✅ [AddAccountVM] Выбран провайдер: $providerId")
-
-        // Автоматически загружаем регионы если нужно
-        loadRegionsForProvider(providerId)
     }
 
     fun getSelectedProvider(): StateFlow<ProviderDomainModel?> {
         return combine(allProviders, selectedProviderId) { providers, selectedId ->
-            if (selectedId == null) {
-                null
-            } else {
-                providers.find { it.id == selectedId }
-            }
+            if (selectedId == null) null
+            else providers.find { it.id == selectedId }
         }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -103,47 +120,91 @@ class AddAccountViewModel @Inject constructor(
         )
     }
 
+    fun clearSelection() {
+        _selectedProviderId.value = null
+        _regions.value = emptyList()
+        _selectedRegionId.value = null
+        _providerHasRegions.value = false
+        println("🔄 [AddAccountVM] Выбор сброшен")
+    }
+
     // =====================================================
-    // STATE - регионы (для провайдеров с HasRegions)
+    // STATE - регионы провайдера
     // =====================================================
 
     private val _regions = MutableStateFlow<List<HasRegions.RegionInfo>>(emptyList())
     val regions: StateFlow<List<HasRegions.RegionInfo>> = _regions.asStateFlow()
 
-    private val _selectedRegionId = MutableStateFlow<String?>(null)
-    val selectedRegionId: StateFlow<String?> = _selectedRegionId.asStateFlow()
-
     private val _providerHasRegions = MutableStateFlow(false)
     val providerHasRegions: StateFlow<Boolean> = _providerHasRegions.asStateFlow()
 
-    private fun loadRegionsForProvider(providerId: String) {
+    private val _isLoadingRegions = MutableStateFlow(false)
+    val isLoadingRegions: StateFlow<Boolean> = _isLoadingRegions.asStateFlow()
+
+    /**
+     * Загрузка регионов для выбранного провайдера
+     *
+     * ✅ Вызывается из UI при переходе на шаг 2
+     */
+    fun loadRegionsForProvider(providerId: String) {  // ← Убрали private
         viewModelScope.launch {
+            _isLoadingRegions.value = true
+            _regions.value = emptyList()
+
             try {
                 val connector = connectorFactory.getConnector(providerId.toLong())
 
                 if (connector is HasRegions) {
-                    println("✅ [AddAccountVM] Провайдер имеет регионы")
-                    _providerHasRegions.value = true
+                    println("🔍 [AddAccountVM] Провайдер поддерживает регионы, загружаем...")
 
-                    connector.getRegions().onSuccess { regionList ->
-                        _regions.value = regionList
-                        println("✅ [AddAccountVM] Загружено регионов: ${regionList.size}")
+                    val result = connector.getRegions()
+
+                    result.onSuccess { regionsList ->
+                        _regions.value = regionsList
+                        _providerHasRegions.value = regionsList.isNotEmpty()
+                        println("✅ [AddAccountVM] Загружено регионов: ${regionsList.size}")
                     }.onFailure { error ->
-                        println("❌ [AddAccountVM] Ошибка загрузки регионов: ${error.message}")
-                        _providerHasRegions.value = false
+                        handleLoadRegionsError(error)
                     }
                 } else {
-                    println("ℹ️ [AddAccountVM] Провайдер без регионов")
+                    println("ℹ️ [AddAccountVM] Провайдер НЕ поддерживает регионы")
                     _providerHasRegions.value = false
-                    _regions.value = emptyList()
                 }
             } catch (e: Exception) {
-                println("❌ [AddAccountVM] Ошибка: ${e.message}")
-                _providerHasRegions.value = false
-                _regions.value = emptyList()
+                handleLoadRegionsError(e)
+            } finally {
+                _isLoadingRegions.value = false
             }
         }
     }
+
+    private fun handleLoadRegionsError(error: Throwable) {
+        val message = when (error) {
+            is SocketTimeoutException ->
+                "Сервер не отвечает. Проверьте подключение к интернету или попробуйте позже."
+
+            is ConnectException, is UnknownHostException ->
+                "Не удалось подключиться к серверу. Проверьте подключение к интернету."
+
+            is IOException ->
+                "Ошибка сети: ${error.message ?: "Неизвестная ошибка"}"
+
+            else ->
+                "Не удалось загрузить данные: ${error.message ?: "Неизвестная ошибка"}"
+        }
+
+        showError(
+            title = "Ошибка подключения",
+            message = message
+        )
+    }
+
+    // =====================================================
+    // STATE - выбранный регион
+    // =====================================================
+
+    private val _selectedRegionId = MutableStateFlow<String?>(null)
+    val selectedRegionId: StateFlow<String?> = _selectedRegionId.asStateFlow()
 
     fun selectRegion(regionId: String) {
         _selectedRegionId.value = regionId
@@ -160,28 +221,63 @@ class AddAccountViewModel @Inject constructor(
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
 
-    fun searchAccountAddress(providerId: String, accountNumber: String, regionId: String?) {
+    /**
+     * Поиск адреса по лицевому счёту
+     */
+    fun searchAccountAddress(
+        providerId: String,
+        accountNumber: String,
+        regionId: String?
+    ) {
         viewModelScope.launch {
             _isSearching.value = true
+            _searchedAddress.value = null
 
             try {
                 val connector = connectorFactory.getConnector(providerId.toLong())
 
+                // ✅ Проверяем: поддерживает ли провайдер поиск
                 if (connector is SearchAccount) {
-                    connector.searchAccount(accountNumber, regionId).onSuccess { address ->
+                    println("🔍 [AddAccountVM] Поиск адреса...")
+
+                    val result = connector.searchAccount(
+                        accountNumber = accountNumber,
+                        regionId = regionId
+                    )
+
+                    result.onSuccess { address ->
                         _searchedAddress.value = address
-                        println("✅ [AddAccountVM] Найден адрес: $address")
+                        println("✅ [AddAccountVM] Адрес найден: $address")
                     }.onFailure { error ->
-                        _searchedAddress.value = null
-                        println("❌ [AddAccountVM] Ошибка поиска: ${error.message}")
+                        showError(
+                            title = "Абонент не найден",
+                            message = "Лицевой счёт $accountNumber не найден в системе"
+                        )
                     }
+                } else {
+                    showError(
+                        title = "Ошибка",
+                        message = "Провайдер не поддерживает поиск адреса"
+                    )
                 }
             } catch (e: Exception) {
-                _searchedAddress.value = null
-                println("❌ [AddAccountVM] Ошибка: ${e.message}")
+                showError(
+                    title = "Ошибка поиска",
+                    message = when (e) {
+                        is SocketTimeoutException ->
+                            "Сервер не отвечает. Попробуйте позже."
+                        else ->
+                            "Не удалось выполнить поиск: ${e.message}"
+                    }
+                )
             } finally {
                 _isSearching.value = false
             }
         }
+    }
+
+    fun clearSearchResult() {
+        _searchedAddress.value = null
+        println("🔄 [AddAccountVM] Результат поиска очищен")
     }
 }

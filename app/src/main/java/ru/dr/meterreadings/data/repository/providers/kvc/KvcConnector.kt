@@ -1,13 +1,12 @@
 package ru.dr.meterreadings.data.repository.providers.kvc
 
-import ru.dr.meterreadings.domain.connector.*
-import ru.dr.meterreadings.data.remote.dto.KvcAbonentInfoDto
+import ru.dr.meterreadings.domain.connector.HasRegions
+import ru.dr.meterreadings.domain.connector.ProviderConnector
+import ru.dr.meterreadings.domain.connector.SearchAccount
+import ru.dr.meterreadings.domain.connector.SubmitReadings
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Коннектор для провайдера КВЦ (Нижний Новгород)
- */
 @Singleton
 class KvcConnector @Inject constructor(
     private val kvcRepository: KvcRepository
@@ -16,71 +15,92 @@ class KvcConnector @Inject constructor(
     SearchAccount,
     SubmitReadings {
 
-    override val providerId: Long = 2L
+    override val providerId: Long = 1L
     override val providerName: String = "КВЦ"
 
-    // Кэш для сохранения данных между запросами
-    private val cache = mutableMapOf<String, KvcAbonentInfoDto>()
-
-    // ========================================
-    // HasRegions
-    // ========================================
-
+    /**
+     * Получить список регионов КВЦ
+     */
     override suspend fun getRegions(): Result<List<HasRegions.RegionInfo>> {
-        return kvcRepository.getRegions().map { regions ->
-            regions.map { region ->
-                HasRegions.RegionInfo(
-                    id = region.id.toString(),
-                    name = region.name
-                )
+        println("🌐 [KvcConnector] Запрос регионов...")
+
+        // ✅ Repository возвращает Result - обрабатываем его
+        val result = kvcRepository.getRegions()
+
+        return result.fold(
+            onSuccess = { regions ->
+                println("✅ [KvcConnector] Получено регионов: ${regions.size}")
+
+                val regionInfoList = regions.map { region ->
+                    HasRegions.RegionInfo(
+                        id = region.id.toString(),
+                        name = region.name
+                    )
+                }
+
+                Result.success(regionInfoList)
+            },
+            onFailure = { error ->
+                println("❌ [KvcConnector] Ошибка: ${error.message}")
+                Result.failure(error)
             }
-        }
+        )
     }
 
-    // ========================================
-    // SearchAccount
-    // ========================================
-
+    /**
+     * Поиск адреса абонента
+     */
     override suspend fun searchAccount(
         accountNumber: String,
         regionId: String?
     ): Result<String> {
-        if (regionId == null) {
-            return Result.failure(Exception("Необходимо выбрать регион"))
-        }
+        println("🔍 [KvcConnector] Поиск ЛС $accountNumber в регионе $regionId")
 
-        try {
-            // 1. Получаем БД региона
-            val locationsResult = kvcRepository.getLocationsForRegion(regionId.toInt())
+        return try {
+            val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
+                "Для КВЦ необходимо указать регион"
+            }
+
+            // Получаем конфигурации БД для региона
+            val locationsResult = kvcRepository.getLocationsForRegion(regionIdInt)
+
             if (locationsResult.isFailure) {
-                return Result.failure(locationsResult.exceptionOrNull()!!)
+                return Result.failure(
+                    locationsResult.exceptionOrNull()
+                        ?: Exception("Не удалось загрузить конфигурации БД")
+                )
             }
 
             val locations = locationsResult.getOrThrow()
 
-            // 2. Ищем абонента
-            val abonentResult = kvcRepository.getAbonentInfo(locations, accountNumber)
-            if (abonentResult.isFailure) {
-                return Result.failure(abonentResult.exceptionOrNull()!!)
-            }
+            // Ищем абонента
+            val abonentResult = kvcRepository.getAbonentInfo(
+                locations = locations,
+                accountNumber = accountNumber,
+                target = 0
+            )
 
-            val abonent = abonentResult.getOrThrow()
-
-            // 3. Сохраняем в кэш для последующих операций
-            cache[accountNumber] = abonent
-
-            // 4. Возвращаем только адрес
-            return Result.success(abonent.getFullAddress())
+            abonentResult.fold(
+                onSuccess = { abonentInfo ->
+                    val address = abonentInfo.getFullAddress()
+                    println("✅ [KvcConnector] Адрес найден: $address")
+                    Result.success(address)
+                },
+                onFailure = { error ->
+                    println("❌ [KvcConnector] Ошибка поиска: ${error.message}")
+                    Result.failure(error)
+                }
+            )
 
         } catch (e: Exception) {
-            return Result.failure(e)
+            println("❌ [KvcConnector] Ошибка: ${e.message}")
+            Result.failure(e)
         }
     }
 
-    // ========================================
-    // SubmitReadings
-    // ========================================
-
+    /**
+     * Передача показаний
+     */
     override suspend fun submitReading(
         counterId: String,
         accountNumber: String,
@@ -88,36 +108,7 @@ class KvcConnector @Inject constructor(
         valueNight: String?,
         regionId: String?
     ): Result<Unit> {
-        try {
-            // Получаем абонента из кэша
-            val abonent = cache[accountNumber]
-                ?: return Result.failure(Exception("Сначала нужно выполнить поиск абонента"))
-
-            // Получаем счётчики
-            val countersResult = kvcRepository.getCounters(
-                location = abonent.location,
-                accountNumber = accountNumber
-            )
-
-            if (countersResult.isFailure) {
-                return Result.failure(countersResult.exceptionOrNull()!!)
-            }
-
-            // Находим нужный счётчик
-            val counter = countersResult.getOrThrow()
-                .firstOrNull { it.idCnt.toString() == counterId }
-                ?: return Result.failure(Exception("Счётчик не найден"))
-
-            // Отправляем показания
-            return kvcRepository.submitReading(
-                counter = counter,
-                location = abonent.location,
-                value = value,
-                valueNight = valueNight
-            )
-
-        } catch (e: Exception) {
-            return Result.failure(e)
-        }
+        // TODO: Реализовать позже используя kvcRepository.submitReading()
+        return Result.failure(NotImplementedError("Передача показаний ещё не реализована"))
     }
 }

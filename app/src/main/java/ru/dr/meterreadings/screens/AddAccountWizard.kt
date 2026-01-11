@@ -26,6 +26,7 @@ import ru.dr.meterreadings.models.domain.ProfileDomainModel
 import ru.dr.meterreadings.models.domain.Type
 import ru.dr.meterreadings.models.ui.AccountUiModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
+import ru.dr.meterreadings.ui.components.ErrorDialog
 import ru.dr.meterreadings.viewmodels.AddAccountViewModel
 
 @Composable
@@ -52,8 +53,38 @@ fun AddAccountWizard(
     val regions by viewModel.regions.collectAsStateWithLifecycle()
     val selectedRegionId by viewModel.selectedRegionId.collectAsStateWithLifecycle()
 
+    val isLoadingRegions by viewModel.isLoadingRegions.collectAsStateWithLifecycle()
+
     val searchedAddress by viewModel.searchedAddress.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
+
+    val errorState by viewModel.errorState.collectAsStateWithLifecycle()
+
+    val shouldResetToStep1 by viewModel.shouldResetToStep1.collectAsStateWithLifecycle()
+
+    LaunchedEffect(shouldResetToStep1) {
+        if (shouldResetToStep1) {
+            currentStep = 1
+            accountNumber = ""
+            viewModel.resetCompleted()
+        }
+    }
+
+    // =====================================================
+    // ДИАЛОГ ОШИБКИ
+    // =====================================================
+
+    errorState?.let { error ->
+        ErrorDialog(
+            title = error.title,
+            message = error.message,
+            onDismiss = {
+                viewModel.dismissError()
+                viewModel.clearSelection()
+            }
+        )
+    }
+
 
     Scaffold(
         topBar = {
@@ -81,7 +112,7 @@ fun AddAccountWizard(
                 totalSteps = 3,
                 canGoBack = currentStep > 1,
                 canGoNext = when(currentStep) {
-                    1 -> selectedProviderId != null
+                    1 -> selectedProviderId != null  // ✅ Просто проверка
                     2 -> {
                         val hasAccountNumber = accountNumber.isNotBlank()
                         val hasRegionIfNeeded = !providerHasRegions || selectedRegionId != null
@@ -92,7 +123,13 @@ fun AddAccountWizard(
                 },
                 onNext = {
                     when(currentStep) {
-                        1 -> currentStep = 2
+                        1 -> {
+                            // ✅ При переходе на шаг 2 - загружаем регионы
+                            if (selectedProviderId != null) {
+                                viewModel.loadRegionsForProvider(selectedProviderId!!)
+                                currentStep = 2
+                            }
+                        }
                         2 -> {
                             // Поиск адреса
                             if (selectedProviderId != null && accountNumber.isNotBlank()) {
@@ -122,7 +159,14 @@ fun AddAccountWizard(
                         }
                     }
                 },
-                onBack = { if (currentStep > 1) currentStep-- }
+                onBack = {
+                    if (currentStep > 1) {
+                        if (currentStep == 3) {
+                            viewModel.clearSearchResult()
+                        }
+                        currentStep--
+                    }
+                }
             )
         }
     ) { paddingValues ->
@@ -189,58 +233,83 @@ fun AddAccountWizard(
                         }
                     }
 
-                    // Выбор региона (если провайдер имеет регионы)
-                    if (providerHasRegions && regions.isNotEmpty()) {
+                    if (isLoadingRegions) {
+                        // Показываем индикатор загрузки
                         item {
-                            Spacer(Modifier.height(16.dp))
+                            Spacer(Modifier.height(32.dp))
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    CircularProgressIndicator()
+                                    Text(
+                                        text = "Загрузка регионов...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        // Регионы загружены - показываем форму
+
+                        // Выбор региона (если провайдер имеет регионы)
+                        if (providerHasRegions && regions.isNotEmpty()) {
+                            item {
+                                Spacer(Modifier.height(16.dp))
+                                Text(
+                                    text = "Регион",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+
+                            items(regions) { region ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { viewModel.selectRegion(region.id) },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (region.id == selectedRegionId)
+                                            MaterialTheme.colorScheme.primaryContainer
+                                        else
+                                            MaterialTheme.colorScheme.surface
+                                    )
+                                ) {
+                                    Text(
+                                        text = region.name,
+                                        modifier = Modifier.padding(16.dp),
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                }
+                            }
+                        }
+
+                        // Ввод лицевого счёта
+                        item {
+                            Spacer(Modifier.height(24.dp))
                             Text(
-                                text = "Регион",
+                                text = "Лицевой счёт",
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Spacer(Modifier.height(8.dp))
+
+                            OutlinedTextField(
+                                value = accountNumber,
+                                onValueChange = { accountNumber = it },
+                                label = { Text("Номер счёта") },
+                                placeholder = { Text("123456789") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
                         }
-
-                        items(regions) { region ->
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { viewModel.selectRegion(region.id) },
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (region.id == selectedRegionId)
-                                        MaterialTheme.colorScheme.primaryContainer
-                                    else
-                                        MaterialTheme.colorScheme.surface
-                                )
-                            ) {
-                                Text(
-                                    text = region.name,
-                                    modifier = Modifier.padding(16.dp),
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                            }
-                        }
-                    }
-
-                    // Ввод лицевого счёта
-                    item {
-                        Spacer(Modifier.height(24.dp))
-                        Text(
-                            text = "Лицевой счёт",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(Modifier.height(8.dp))
-
-                        OutlinedTextField(
-                            value = accountNumber,
-                            onValueChange = { accountNumber = it },
-                            label = { Text("Номер счёта") },
-                            placeholder = { Text("123456789") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
                     }
                 }
 
@@ -249,50 +318,38 @@ fun AddAccountWizard(
                 // ============================================
                 3 -> {
                     item {
-                        if (isSearching) {
-                            Box(
-                                modifier = Modifier.fillMaxWidth(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator()
-                            }
-                        } else if (searchedAddress != null) {
-                            Card(modifier = Modifier.fillMaxWidth()) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            Icons.Default.CheckCircle,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(32.dp)
-                                        )
-                                        Spacer(Modifier.width(12.dp))
-                                        Text(
-                                            text = "Абонент найден!",
-                                            style = MaterialTheme.typography.titleMedium
-                                        )
+                        when {
+                            isSearching -> {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        CircularProgressIndicator()
+                                        Text("Поиск абонента...")
                                     }
-
-                                    Spacer(Modifier.height(16.dp))
-                                    Text(
-                                        text = "📍 $searchedAddress\n" +
-                                                "🆔 Л/С: $accountNumber",
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
                                 }
                             }
-                        } else {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer
-                                )
-                            ) {
-                                Text(
-                                    text = "❌ Абонент не найден",
-                                    modifier = Modifier.padding(16.dp),
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
+                            searchedAddress != null -> {
+                                Card(modifier = Modifier.fillMaxWidth()) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(32.dp)
+                                            )
+                                            Spacer(Modifier.width(12.dp))
+                                            Text("Абонент найден!")
+                                        }
+                                        Spacer(Modifier.height(16.dp))
+                                        Text("📍 $searchedAddress\n🆔 Л/С: $accountNumber")
+                                    }
+                                }
                             }
                         }
                     }
