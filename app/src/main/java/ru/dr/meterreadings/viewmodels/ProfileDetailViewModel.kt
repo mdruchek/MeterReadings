@@ -1,67 +1,51 @@
-package ru.dr.meterreadings.viewmodels  // ← Изменили package!
+// app/src/main/java/ru/dr/meterreadings/viewmodels/ProfileDetailViewModel.kt
 
-import androidx.lifecycle.SavedStateHandle
+package ru.dr.meterreadings.viewmodels
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import ru.dr.meterreadings.models.domain.AccountDomainModel
-import ru.dr.meterreadings.models.domain.ProfileDomainModel
-import ru.dr.meterreadings.models.domain.ProviderDomainModel
-import ru.dr.meterreadings.data.repository.ProfileRepository
+import ru.dr.meterreadings.data.mappers.KvcMeterMapper
+import ru.dr.meterreadings.data.remote.dto.KvcCounterDto
+import ru.dr.meterreadings.data.remote.dto.KvcLocationDto
 import ru.dr.meterreadings.data.repository.AccountRepository
-import ru.dr.meterreadings.data.repository.ProviderRepository
+import ru.dr.meterreadings.data.repository.ProfileRepository  // ✅ ДОБАВИТЬ
+import ru.dr.meterreadings.data.repository.providers.kvc.KvcRepository
+import ru.dr.meterreadings.models.domain.AccountDomainModel
+import ru.dr.meterreadings.models.domain.ProfileDomainModel  // ✅ ДОБАВИТЬ
+import ru.dr.meterreadings.models.ui.MeterUiModel
 import javax.inject.Inject
 
 @HiltViewModel
 class ProfileDetailViewModel @Inject constructor(
-    private val profileRepository: ProfileRepository,
     private val accountRepository: AccountRepository,
-    private val providerRepository: ProviderRepository,
-    savedStateHandle: SavedStateHandle
+    private val profileRepository: ProfileRepository,  // ✅ ДОБАВИТЬ
+    private val kvcRepository: KvcRepository
 ) : ViewModel() {
 
-    private val profileId: String = checkNotNull(savedStateHandle["profileId"]) {
-        "profileId is required"
-    }
+    // ============================================
+    // STATE
+    // ============================================
 
+    private val _profileId = MutableStateFlow<String?>(null)
+    val profileId: StateFlow<String?> = _profileId.asStateFlow()
+
+    // ✅ ДОБАВИТЬ: Профиль
     private val _profile = MutableStateFlow<ProfileDomainModel?>(null)
     val profile: StateFlow<ProfileDomainModel?> = _profile.asStateFlow()
 
     private val _accounts = MutableStateFlow<List<AccountDomainModel>>(emptyList())
     val accounts: StateFlow<List<AccountDomainModel>> = _accounts.asStateFlow()
 
-    // =====================================================
-    // ПРОВАЙДЕРЫ из БД (автообновление)
-    // =====================================================
+    private val _accountAddresses = MutableStateFlow<Map<String, String>>(emptyMap())
+    val accountAddresses: StateFlow<Map<String, String>> = _accountAddresses.asStateFlow()
 
-    /**
-     * Map провайдеров для быстрого поиска по ID
-     *
-     * Формат: { "mosvodokanal" -> ProviderDomainModel(...), ... }
-     *
-     * Автоматически обновляется при изменениях в БД благодаря Flow
-     */
-    val providers: StateFlow<Map<String, ProviderDomainModel>> = providerRepository
-        .getAllProviders()  // Flow<List<ProviderDomainModel>> из Repository
-        .map { providersList ->
-            // Конвертируем List в Map для быстрого поиска по ID
-            // [Provider1, Provider2] → { "id1" -> Provider1, "id2" -> Provider2 }
-            providersList.associateBy { it.id }
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyMap()  // Пустая Map пока БД не ответила
-        )
+    private val _meters = MutableStateFlow<List<MeterUiModel>>(emptyList())
+    val meters: StateFlow<List<MeterUiModel>> = _meters.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -69,111 +53,248 @@ class ProfileDetailViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    init {
-        println("🔍 [ViewModel] ProfileDetailViewModel создан для профиля: $profileId")
-        loadProfileData()
-    }
+    private val _submittingMeters = MutableStateFlow<Set<String>>(emptySet())
+    val submittingMeters: StateFlow<Set<String>> = _submittingMeters.asStateFlow()
 
-    private fun loadProfileData() {
-        // =====================================================
-        // КОРУТИНА 1: Загрузка профиля (один раз)
-        // =====================================================
+    private val _kvcDataCache = MutableStateFlow<Map<String, KvcCachedData>>(emptyMap())
+
+    // ============================================
+    // PUBLIC METHODS
+    // ============================================
+
+    fun initialize(profileId: String) {
+        _profileId.value = profileId
+
+        // ✅ ДОБАВИТЬ: Загружаем профиль
         viewModelScope.launch {
-            try {
-                _isLoading.value = true
-                _error.value = null
-
-                println("📥 [ViewModel] Загружаем профиль: $profileId")
-
-                val profile = profileRepository.getProfileById(profileId).first()
-                if (profile == null) {
-                    _error.value = "Профиль не найден"
-                    println("❌ [ViewModel] Профиль $profileId не найден")
-                    _isLoading.value = false
-                    return@launch
-                }
-
+            profileRepository.getProfileById(profileId).collect { profile ->
                 _profile.value = profile
-                println("✅ [ViewModel] Профиль загружен: ${profile.name}")
-                _isLoading.value = false
-
-            } catch (e: Exception) {
-                _error.value = "Ошибка загрузки: ${e.message}"
-                println("❌ [ViewModel] Ошибка загрузки профиля: ${e.message}")
-                e.printStackTrace()
-                _isLoading.value = false
             }
         }
 
-        // =====================================================
-        // КОРУТИНА 2: Слушаем аккаунты (постоянно)
-        // =====================================================
+        // Подписываемся на изменения аккаунтов
         viewModelScope.launch {
+            accountRepository.getAccountsByProfileId(profileId).collect { accounts ->
+                println("🔍 [ProfileDetailViewModel] Обновление аккаунтов: ${accounts.size}")
+                _accounts.value = accounts
+
+                if (accounts.isNotEmpty()) {
+                    loadMetersForAllAccounts(accounts)
+                } else {
+                    _meters.value = emptyList()
+                    _accountAddresses.value = emptyMap()
+                    _isLoading.value = false
+                }
+            }
+        }
+    }
+
+    private fun loadMetersForAllAccounts(accounts: List<AccountDomainModel>) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+
+            val allMeters = mutableListOf<MeterUiModel>()
+            val kvcCache = mutableMapOf<String, KvcCachedData>()
+            val addresses = mutableMapOf<String, String>()
+
             try {
-                accountRepository.getAccountsByProfileId(profileId).collect { accounts ->
-                    println("🔔 [ViewModel] Flow обновился! Счетов: ${accounts.size}")
-                    _accounts.value = accounts
-                    accounts.forEach { account ->
-                        println("  💳 [ViewModel] ${account.accountNumber} (${account.providerId})")
+                println("🔍 [ProfileDetailViewModel] Загружаем счётчики для ${accounts.size} аккаунтов")
+
+                for (account in accounts) {
+                    println("📋 [ProfileDetailViewModel] Аккаунт: ${account.accountNumber}, Провайдер: ${account.providerId}")
+
+                    try {
+                        when (account.providerId) {
+                            "1" -> {  // КВЦ
+                                val (meters, address) = loadKvcMeters(account, kvcCache)
+                                allMeters.addAll(meters)
+                                addresses[account.id] = address
+
+                                println("✅ [ProfileDetailViewModel] Загружено ${meters.size} счётчиков КВЦ")
+                                println("   📍 Адрес: $address")
+                            }
+                            else -> {
+                                println("⚠️ [ProfileDetailViewModel] Провайдер ${account.providerId} пока не поддерживается")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        println("❌ [ProfileDetailViewModel] Ошибка для ЛС ${account.accountNumber}: ${e.message}")
                     }
                 }
-            } catch (e: CancellationException) {
-                // Игнорируем отмену корутины при уничтожении ViewModel
-                println("⏹️ [ViewModel] Корутина слушания аккаунтов отменена (это нормально)")
+
+                _meters.value = allMeters
+                _accountAddresses.value = addresses
+                _kvcDataCache.value = kvcCache
+
+                println("✅ [ProfileDetailViewModel] ИТОГО загружено счётчиков: ${allMeters.size}")
+
             } catch (e: Exception) {
-                println("❌ [ViewModel] Ошибка слушания аккаунтов: ${e.message}")
+                println("❌ [ProfileDetailViewModel] Общая ошибка: ${e.message}")
                 e.printStackTrace()
+                _error.value = "Не удалось загрузить счётчики: ${e.message}"
+            } finally {
+                _isLoading.value = false
             }
         }
     }
 
-    fun deleteProfile(onSuccess: () -> Unit) {
-        viewModelScope.launch {
-            try {
-                println("🗑️ [ViewModel] Удаляем профиль: $profileId")
+    private suspend fun loadKvcMeters(
+        account: AccountDomainModel,
+        kvcCache: MutableMap<String, KvcCachedData>
+    ): Pair<List<MeterUiModel>, String> {
+        println("=" .repeat(60))
+        println("🔍 [loadKvcMeters] НАЧАЛО загрузки для аккаунта")
+        println("   Account ID: ${account.id}")
+        println("   Account Number: ${account.accountNumber}")
+        println("   Provider ID: ${account.providerId}")
+        println("   Region ID: ${account.regionId}")
+        println("=" .repeat(60))
 
-                if (_profile.value == null) {
-                    _error.value = "Профиль не найден"
-                    return@launch
+        val regionId = account.regionId
+            ?: throw Exception("Для аккаунта КВЦ не указан регион")
+
+        println("📡 [loadKvcMeters] ШАГ 1: Загрузка конфигураций БД для региона $regionId")
+        val locationsResult = kvcRepository.getLocationsForRegion(regionId)
+
+        if (locationsResult.isFailure) {
+            val error = locationsResult.exceptionOrNull()
+            println("❌ [loadKvcMeters] ШАГ 1 FAILED: ${error?.message}")
+            error?.printStackTrace()
+            throw error ?: Exception("Не удалось загрузить конфигурации БД")
+        }
+
+        val locations = locationsResult.getOrThrow()
+        println("✅ [loadKvcMeters] ШАГ 1 OK: Конфигураций БД: ${locations.size}")
+        locations.forEachIndexed { index, location ->
+            println("   Location[$index]: dbName=${location.dbName}, idTer=${location.dbName}")
+        }
+
+        println("📡 [loadKvcMeters] ШАГ 2: Поиск абонента ${account.accountNumber}")
+        val abonentResult = kvcRepository.getAbonentInfo(
+            locations = locations,
+            accountNumber = account.accountNumber,
+            target = 0
+        )
+
+        if (abonentResult.isFailure) {
+            val error = abonentResult.exceptionOrNull()
+            println("❌ [loadKvcMeters] ШАГ 2 FAILED: ${error?.message}")
+            error?.printStackTrace()
+            throw error ?: Exception("Абонент не найден")
+        }
+
+        val abonentInfo = abonentResult.getOrThrow()
+        val address = abonentInfo.getFullAddress()
+        println("✅ [loadKvcMeters] ШАГ 2 OK: Абонент найден")
+        println("   Адрес: $address")
+        println("   ФИО: ${abonentInfo.fio}")
+        println("   Location: dbName=${abonentInfo.location.dbName}")
+
+        println("📡 [loadKvcMeters] ШАГ 3: Загрузка счётчиков")
+        val countersResult = kvcRepository.getCounters(
+            location = abonentInfo.location,
+            accountNumber = account.accountNumber
+        )
+
+        if (countersResult.isFailure) {
+            val error = countersResult.exceptionOrNull()
+            println("❌ [loadKvcMeters] ШАГ 3 FAILED: ${error?.message}")
+            error?.printStackTrace()
+            throw error ?: Exception("Не удалось загрузить счётчики")
+        }
+
+        val kvcCounters = countersResult.getOrThrow()
+        println("✅ [loadKvcMeters] ШАГ 3 OK: Счётчиков от API: ${kvcCounters.size}")
+        kvcCounters.forEachIndexed { index, counter ->
+            println("   Counter[$index]:")
+            println("     ID: ${counter.idCnt}")
+            println("     Тип: ${counter.servName}")
+            println("     Номер: ${counter.number}")
+            println("     Можно редактировать: ${counter.canEdit()}")
+            println("     Последнее значение: ${counter.cValLst}")
+            println("     Дата: ${counter.datLst}")
+        }
+
+        println("🔄 [loadKvcMeters] ШАГ 4: Маппинг в UI модели")
+        val uiMeters = KvcMeterMapper.mapListToUi(
+            kvcCounters = kvcCounters,
+            accountId = account.id
+        )
+        println("✅ [loadKvcMeters] ШАГ 4 OK: UI моделей создано: ${uiMeters.size}")
+        uiMeters.forEachIndexed { index, meter ->
+            println("   Meter[$index]: ${meter.type}, lastValue=${meter.lastValue}")
+        }
+
+        kvcCache[account.id] = KvcCachedData(
+            location = abonentInfo.location,
+            counters = kvcCounters
+        )
+
+        println("=" .repeat(60))
+        println("✅ [loadKvcMeters] ЗАВЕРШЕНО успешно")
+        println("=" .repeat(60))
+
+        return Pair(uiMeters, address)
+    }
+
+    fun submitReading(meter: MeterUiModel, newValue: Int) {
+        viewModelScope.launch {
+            _submittingMeters.value = _submittingMeters.value + meter.id
+
+            try {
+                println("📤 [ProfileDetailViewModel] Отправляем показание: ${meter.type} = $newValue")
+
+                val kvcData = _kvcDataCache.value[meter.accountId]
+                    ?: throw Exception("Данные КВЦ не загружены. Обновите страницу.")
+
+                val counterId = meter.id.substringAfterLast("_").toInt()
+                val kvcCounter = kvcData.counters.find { it.idCnt == counterId }
+                    ?: throw Exception("Счётчик не найден")
+
+                val result = kvcRepository.submitReading(
+                    counter = kvcCounter,
+                    location = kvcData.location,
+                    value = newValue.toString(),
+                    valueNight = null
+                )
+
+                if (result.isFailure) {
+                    throw result.exceptionOrNull()
+                        ?: Exception("Не удалось передать показание")
                 }
 
-                profileRepository.deleteProfile(profileId)
-                println("✅ [ViewModel] Профиль удалён!")
-                onSuccess()
+                println("✅ [ProfileDetailViewModel] Показание успешно передано")
+
+                _accounts.value.let { accounts ->
+                    if (accounts.isNotEmpty()) {
+                        loadMetersForAllAccounts(accounts)
+                    }
+                }
 
             } catch (e: Exception) {
-                _error.value = "Ошибка удаления: ${e.message}"
-                println("❌ [ViewModel] Ошибка удаления профиля: ${e.message}")
+                println("❌ [ProfileDetailViewModel] Ошибка передачи: ${e.message}")
+                e.printStackTrace()
+
+                _error.value = when {
+                    e.message?.contains("Период") == true -> e.message
+                    e.message?.contains("Передача доступна") == true -> e.message
+                    else -> "Не удалось передать показание: ${e.message}"
+                }
+            } finally {
+                _submittingMeters.value = _submittingMeters.value - meter.id
             }
         }
     }
 
-    /**
-     * Удалить лицевой счёт
-     *
-     * Вызывает AccountRepository для удаления из БД.
-     * Благодаря Flow, UI автоматически обновится после удаления.
-     *
-     * @param accountId ID счёта для удаления
-     */
     fun deleteAccount(accountId: String) {
         viewModelScope.launch {
             try {
-                println("🗑️ [ViewModel] Удаляем аккаунт: $accountId")
-
-                // Вызываем Repository для удаления из БД
                 accountRepository.deleteAccount(accountId)
-
-                println("✅ [ViewModel] Аккаунт удалён!")
-
-                // UI автоматически обновится благодаря Flow в loadProfileData()
-                // Нам не нужно вручную обновлять _accounts - Flow сделает это сам!
-
+                println("✅ [ProfileDetailViewModel] Аккаунт удалён")
             } catch (e: Exception) {
-                // Обрабатываем ошибки (например, счёт не найден)
-                _error.value = "Ошибка удаления: ${e.message}"
-                println("❌ [ViewModel] Ошибка удаления аккаунта: ${e.message}")
-                e.printStackTrace()
+                println("❌ [ProfileDetailViewModel] Ошибка удаления: ${e.message}")
+                _error.value = "Не удалось удалить аккаунт"
             }
         }
     }
@@ -181,5 +302,17 @@ class ProfileDetailViewModel @Inject constructor(
     fun clearError() {
         _error.value = null
     }
-}
 
+    fun refresh() {
+        _accounts.value.let { accounts ->
+            if (accounts.isNotEmpty()) {
+                loadMetersForAllAccounts(accounts)
+            }
+        }
+    }
+
+    private data class KvcCachedData(
+        val location: KvcLocationDto,
+        val counters: List<KvcCounterDto>
+    )
+}

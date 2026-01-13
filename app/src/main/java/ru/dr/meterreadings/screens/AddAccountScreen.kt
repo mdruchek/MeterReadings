@@ -6,51 +6,49 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.navigation.NavHostController
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavController
-import ru.dr.meterreadings.viewmodels.AddAccountViewModel
 import ru.dr.meterreadings.viewmodels.ProfileViewModel
 
-/**
- * Экран добавления аккаунта (аналог Django views.py)
- */
 @Composable
 fun AddAccountScreen(
     profileId: String,
-    navController: NavController,
+    navController: NavHostController,
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
-    // Загружаем профиль
-    LaunchedEffect(profileId) {
-        viewModel.loadProfile(profileId)
+    // ✅ ИСПРАВЛЕНО: collectAsStateWithLifecycle() без initial
+    val profiles by viewModel.profiles.collectAsStateWithLifecycle()
+
+    // ✅ Безопасный доступ
+    val profile = remember(profiles, profileId) {
+        profiles.find { it.profile.id == profileId }?.profile
     }
 
-    val profileUi by viewModel.profile.collectAsStateWithLifecycle()
-
-    profileUi?.let { loadedProfile ->
-        AddAccountWizard(
-            profile = loadedProfile.profile,
-            viewModel = hiltViewModel(),
-            onAccountAdded = { newAccount ->
-                // ✅ БИЗНЕС-ПРОЦЕСС НА СТРАНИЦЕ (как в Django views)
-                viewModel.addAccount(
-                    profileId = profileId,
-                    providerId = newAccount.account.providerId,
-                    accountNumber = newAccount.account.accountNumber
-                )
-
-                // ✅ redirect (как в Django)
-                navController.popBackStack()
-            },
-            onCancel = {
+    when {
+        profiles.isEmpty() -> {
+            // Показываем загрузку пока профили не загрузились
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+        profile == null -> {
+            // Профиль не найден
+            LaunchedEffect(Unit) {
                 navController.navigateUp()
             }
-        )
-    } ?: Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        CircularProgressIndicator()  // ✅ Встроенный компонент Material3
+        }
+        else -> {
+            // Показываем wizard
+            AddAccountWizard(
+                profile = profile,
+                onCancel = {
+                    navController.navigateUp()
+                }
+            )
+        }
     }
 }

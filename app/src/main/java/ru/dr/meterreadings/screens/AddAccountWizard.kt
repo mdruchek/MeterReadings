@@ -21,10 +21,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import ru.dr.meterreadings.models.domain.AccountDomainModel
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
 import ru.dr.meterreadings.models.domain.Type
-import ru.dr.meterreadings.models.ui.AccountUiModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
 import ru.dr.meterreadings.ui.components.ErrorDialog
 import ru.dr.meterreadings.viewmodels.AddAccountViewModel
@@ -32,7 +30,6 @@ import ru.dr.meterreadings.viewmodels.AddAccountViewModel
 @Composable
 fun AddAccountWizard(
     profile: ProfileDomainModel,
-    onAccountAdded: (AccountUiModel) -> Unit,
     onCancel: () -> Unit,
     viewModel: AddAccountViewModel = hiltViewModel()
 ) {
@@ -42,6 +39,9 @@ fun AddAccountWizard(
 
     var currentStep by remember { mutableStateOf(1) }
     var accountNumber by remember { mutableStateOf("") }
+
+    var regionSearchQuery by remember { mutableStateOf("") }
+    var isRegionDropdownExpanded by remember { mutableStateOf(false) }
 
     // State из ViewModel
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -59,14 +59,47 @@ fun AddAccountWizard(
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
 
     val errorState by viewModel.errorState.collectAsStateWithLifecycle()
-
     val shouldResetToStep1 by viewModel.shouldResetToStep1.collectAsStateWithLifecycle()
+
+    val isCreating by viewModel.isCreating.collectAsStateWithLifecycle()
+    val createdAccountId by viewModel.createdAccountId.collectAsStateWithLifecycle()
+
+    // =====================================================
+    // АВТОМАТИЧЕСКАЯ НАВИГАЦИЯ ПОСЛЕ СОЗДАНИЯ
+    // =====================================================
+
+    LaunchedEffect(createdAccountId) {
+        if (createdAccountId != null) {
+            println("✅ [Wizard] Аккаунт создан: $createdAccountId, закрываем wizard")
+            onCancel()
+            viewModel.resetCreation()
+        }
+    }
+
+    // =====================================================
+    // АВТОМАТИЧЕСКАЯ ОЧИСТКА СОСТОЯНИЯ
+    // =====================================================
 
     LaunchedEffect(shouldResetToStep1) {
         if (shouldResetToStep1) {
             currentStep = 1
             accountNumber = ""
             viewModel.resetCompleted()
+        }
+    }
+
+    LaunchedEffect(currentStep) {
+        println("🔄 [AddAccountWizard] Переход на шаг $currentStep")
+        when (currentStep) {
+            1 -> {
+                println("🧹 [AddAccountWizard] Полная очистка состояния")
+                accountNumber = ""
+                regionSearchQuery = ""
+                isRegionDropdownExpanded = false
+            }
+            3 -> {
+                isRegionDropdownExpanded = false
+            }
         }
     }
 
@@ -84,7 +117,6 @@ fun AddAccountWizard(
             }
         )
     }
-
 
     Scaffold(
         topBar = {
@@ -112,26 +144,24 @@ fun AddAccountWizard(
                 totalSteps = 3,
                 canGoBack = currentStep > 1,
                 canGoNext = when(currentStep) {
-                    1 -> selectedProviderId != null  // ✅ Просто проверка
+                    1 -> selectedProviderId != null
                     2 -> {
                         val hasAccountNumber = accountNumber.isNotBlank()
                         val hasRegionIfNeeded = !providerHasRegions || selectedRegionId != null
                         hasAccountNumber && hasRegionIfNeeded
                     }
-                    3 -> searchedAddress != null
+                    3 -> searchedAddress != null && !isCreating
                     else -> false
                 },
                 onNext = {
                     when(currentStep) {
                         1 -> {
-                            // ✅ При переходе на шаг 2 - загружаем регионы
                             if (selectedProviderId != null) {
                                 viewModel.loadRegionsForProvider(selectedProviderId!!)
                                 currentStep = 2
                             }
                         }
                         2 -> {
-                            // Поиск адреса
                             if (selectedProviderId != null && accountNumber.isNotBlank()) {
                                 viewModel.searchAccountAddress(
                                     providerId = selectedProviderId!!,
@@ -142,19 +172,11 @@ fun AddAccountWizard(
                             }
                         }
                         3 -> {
-                            // Сохранение
-                            if (selectedProviderId != null && searchedAddress != null) {
-                                val newAccount = AccountUiModel(
-                                    account = AccountDomainModel(
-                                        id = System.currentTimeMillis().toString(),
-                                        profileId = profile.id,
-                                        providerId = selectedProviderId!!,
-                                        accountNumber = accountNumber,
-                                        regionId = selectedRegionId?.toIntOrNull()
-                                    ),
-                                    address = searchedAddress
+                            if (selectedProviderId != null && accountNumber.isNotBlank()) {
+                                viewModel.createAccount(
+                                    profileId = profile.id,
+                                    accountNumber = accountNumber
                                 )
-                                onAccountAdded(newAccount)
                             }
                         }
                     }
@@ -166,7 +188,8 @@ fun AddAccountWizard(
                         }
                         currentStep--
                     }
-                }
+                },
+                isLoading = isCreating
             )
         }
     ) { paddingValues ->
@@ -234,7 +257,6 @@ fun AddAccountWizard(
                     }
 
                     if (isLoadingRegions) {
-                        // Показываем индикатор загрузки
                         item {
                             Spacer(Modifier.height(32.dp))
                             Box(
@@ -253,11 +275,9 @@ fun AddAccountWizard(
                                     )
                                 }
                             }
+                            Spacer(Modifier.height(32.dp))
                         }
                     } else {
-                        // Регионы загружены - показываем форму
-
-                        // Выбор региона (если провайдер имеет регионы)
                         if (providerHasRegions && regions.isNotEmpty()) {
                             item {
                                 Spacer(Modifier.height(16.dp))
@@ -267,30 +287,101 @@ fun AddAccountWizard(
                                     color = MaterialTheme.colorScheme.primary
                                 )
                                 Spacer(Modifier.height(8.dp))
-                            }
 
-                            items(regions) { region ->
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { viewModel.selectRegion(region.id) },
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (region.id == selectedRegionId)
-                                            MaterialTheme.colorScheme.primaryContainer
-                                        else
-                                            MaterialTheme.colorScheme.surface
-                                    )
+                                ExposedDropdownMenuBox(
+                                    expanded = isRegionDropdownExpanded,
+                                    onExpandedChange = { isRegionDropdownExpanded = it }
                                 ) {
-                                    Text(
-                                        text = region.name,
-                                        modifier = Modifier.padding(16.dp),
-                                        style = MaterialTheme.typography.bodyLarge
+                                    OutlinedTextField(
+                                        value = regions.find { it.id == selectedRegionId }?.name ?: "",
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = { Text("Выберите регион") },
+                                        placeholder = { Text("Нажмите для выбора") },
+                                        trailingIcon = {
+                                            ExposedDropdownMenuDefaults.TrailingIcon(
+                                                expanded = isRegionDropdownExpanded
+                                            )
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .menuAnchor(),
+                                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
                                     )
+
+                                    ExposedDropdownMenu(
+                                        expanded = isRegionDropdownExpanded,
+                                        onDismissRequest = {
+                                            isRegionDropdownExpanded = false
+                                            regionSearchQuery = ""
+                                        },
+                                        modifier = Modifier.heightIn(max = 400.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = regionSearchQuery,
+                                            onValueChange = { regionSearchQuery = it },
+                                            placeholder = { Text("Поиск региона...") },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Default.Search,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                            singleLine = true
+                                        )
+
+                                        HorizontalDivider()
+
+                                        val filteredRegions = if (regionSearchQuery.isBlank()) {
+                                            regions
+                                        } else {
+                                            regions.filter { region ->
+                                                region.name.contains(regionSearchQuery, ignoreCase = true)
+                                            }
+                                        }
+
+                                        if (filteredRegions.isEmpty()) {
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        "Регион не найден",
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        style = MaterialTheme.typography.bodyMedium
+                                                    )
+                                                },
+                                                onClick = {},
+                                                enabled = false
+                                            )
+                                        } else {
+                                            filteredRegions.forEach { region ->
+                                                DropdownMenuItem(
+                                                    text = { Text(region.name) },
+                                                    onClick = {
+                                                        viewModel.selectRegion(region.id)
+                                                        isRegionDropdownExpanded = false
+                                                        regionSearchQuery = ""
+                                                    },
+                                                    leadingIcon = if (region.id == selectedRegionId) {
+                                                        {
+                                                            Icon(
+                                                                Icons.Default.CheckCircle,
+                                                                contentDescription = null,
+                                                                tint = MaterialTheme.colorScheme.primary
+                                                            )
+                                                        }
+                                                    } else null
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
 
-                        // Ввод лицевого счёта
                         item {
                             Spacer(Modifier.height(24.dp))
                             Text(
@@ -344,10 +435,22 @@ fun AddAccountWizard(
                                                 modifier = Modifier.size(32.dp)
                                             )
                                             Spacer(Modifier.width(12.dp))
-                                            Text("Абонент найден!")
+                                            Text(
+                                                text = "Абонент найден!",
+                                                style = MaterialTheme.typography.titleMedium
+                                            )
                                         }
                                         Spacer(Modifier.height(16.dp))
-                                        Text("📍 $searchedAddress\n🆔 Л/С: $accountNumber")
+                                        Text(
+                                            text = "📍 $searchedAddress",
+                                            style = MaterialTheme.typography.bodyLarge
+                                        )
+                                        Spacer(Modifier.height(8.dp))
+                                        Text(
+                                            text = "🆔 Л/С: $accountNumber",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
                             }
@@ -381,7 +484,11 @@ fun ProviderCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "🏢",
+                text = when(provider.provider.type) {
+                    Type.WaterSupply -> "💧"
+                    Type.GasSupply -> "🔥"
+                    Type.ElectricitySupply -> "⚡"
+                },
                 style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.padding(end = 12.dp)
             )
@@ -393,9 +500,21 @@ fun ProviderCard(
                 )
 
                 Text(
-                    text = provider.provider.type.name,
+                    text = when(provider.provider.type) {
+                        Type.WaterSupply -> "Водоснабжение"
+                        Type.GasSupply -> "Газоснабжение"
+                        Type.ElectricitySupply -> "Электроснабжение"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (isSelected) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
         }
@@ -409,7 +528,8 @@ fun BottomNavigationBar(
     canGoBack: Boolean,
     canGoNext: Boolean,
     onNext: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    isLoading: Boolean = false
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -423,7 +543,10 @@ fun BottomNavigationBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (canGoBack) {
-                TextButton(onClick = onBack) {
+                TextButton(
+                    onClick = onBack,
+                    enabled = !isLoading
+                ) {
                     Text("Назад")
                 }
             } else {
@@ -446,13 +569,22 @@ fun BottomNavigationBar(
                 }
             }
 
-            TextButton(
+            Button(
                 onClick = onNext,
-                enabled = canGoNext
+                enabled = canGoNext && !isLoading
             ) {
+                if (isLoading && currentStep == 3) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
                 Text(
-                    text = when(currentStep) {
-                        3 -> "Добавить"
+                    text = when {
+                        isLoading && currentStep == 3 -> "Сохранение..."
+                        currentStep == 3 -> "Добавить"
                         else -> "Далее"
                     }
                 )

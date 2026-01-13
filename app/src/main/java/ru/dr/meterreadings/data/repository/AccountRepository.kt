@@ -52,6 +52,7 @@ class AccountRepository @Inject constructor(
         profileId: String,
         providerId: String,
         accountNumber: String,
+        regionId: Int? = null,
         login: String? = null,
         password: String? = null
     ): String {
@@ -59,6 +60,7 @@ class AccountRepository @Inject constructor(
         println("   profileId: $profileId")
         println("   providerId: $providerId")
         println("   accountNumber: $accountNumber")
+        println("   regionId: $regionId")
 
         val exists = accountDao.exists(profileId, accountNumber)
         if (exists) {
@@ -69,7 +71,8 @@ class AccountRepository @Inject constructor(
             id = UUID.randomUUID().toString(),
             profileId = profileId,
             providerId = providerId,
-            accountNumber = accountNumber
+            accountNumber = accountNumber,
+            regionId = regionId
         )
 
         val entity = domainModel.toEntity(
@@ -81,6 +84,7 @@ class AccountRepository @Inject constructor(
 
         accountDao.insert(entity)
         println("✅ [Repository] Аккаунт добавлен в БД: ${entity.id}")
+        println("   regionId в БД: ${entity.regionId}")
         return domainModel.id
     }
 

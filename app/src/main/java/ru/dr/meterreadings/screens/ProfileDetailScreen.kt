@@ -1,6 +1,7 @@
+// app/src/main/java/ru/dr/meterreadings/ui/screens/ProfileDetailScreen.kt
+
 package ru.dr.meterreadings.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,63 +11,67 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.hilt.navigation.compose.hiltViewModel
-import ru.dr.meterreadings.viewmodels.ProfileDetailViewModel  // ← ИЗМЕНИЛИ!
-import ru.dr.meterreadings.models.ui.AccountUiModel
+import ru.dr.meterreadings.viewmodels.ProfileDetailViewModel
 import ru.dr.meterreadings.models.domain.AccountDomainModel
-import ru.dr.meterreadings.models.domain.ProviderDomainModel
-import ru.dr.meterreadings.models.domain.AuthType
-import ru.dr.meterreadings.models.domain.Type
+import ru.dr.meterreadings.ui.components.MeterReadingInput
 
+/**
+ * Экран детальной информации профиля со счётчиками
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileDetailScreen(
     profileId: String,
     navController: NavHostController,
-    viewModel: ProfileDetailViewModel = hiltViewModel()  // ← ИЗМЕНИЛИ!
+    viewModel: ProfileDetailViewModel = hiltViewModel()
 ) {
     var showMenu by remember { mutableStateOf(false) }
-
-    // =====================================================
-    // STATE ДЛЯ УДАЛЕНИЯ АККАУНТА
-    // =====================================================
-
-    // Показывать ли диалог подтверждения удаления
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
+    var accountToDelete by remember { mutableStateOf<AccountDomainModel?>(null) }
 
-    // Какой аккаунт хотим удалить (сохраняем для диалога)
-    var accountToDelete by remember { mutableStateOf<AccountUiModel?>(null) }
+    // ============================================
+    // STATE ИЗ VIEWMODEL
+    // ============================================
 
-    // =====================================================
-    // STATE ИЗ VIEWMODEL (вместо моков!)
-    // =====================================================
-    val profile by viewModel.profile.collectAsState()
+    LaunchedEffect(profileId) {
+        viewModel.initialize(profileId)
+    }
+
+    val profile by viewModel.profile.collectAsState(initial = null)
     val accounts by viewModel.accounts.collectAsState()
+    val meters by viewModel.meters.collectAsState()
+    val accountAddresses by viewModel.accountAddresses.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
-    val providers by viewModel.providers.collectAsStateWithLifecycle()
+    val submittingMeters by viewModel.submittingMeters.collectAsState()
 
-    // Обработка ошибок
+    // Snackbar для ошибок
+    val snackbarHostState = remember { SnackbarHostState() }
+
     LaunchedEffect(error) {
         error?.let {
-            println("❌ [ProfileDetailScreen] Ошибка: $it")
+            snackbarHostState.showSnackbar(
+                message = it,
+                duration = SnackbarDuration.Short
+            )
             viewModel.clearError()
         }
     }
 
-    // Показываем загрузку или "профиль не найден"
-    if (profile == null) {
+    // Показываем загрузку профиля
+    if (profile == null && isLoading) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Детали профиля") },
+                    title = { Text("Загрузка...") },
                     navigationIcon = {
                         IconButton(onClick = { navController.navigateUp() }) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
@@ -81,45 +86,34 @@ fun ProfileDetailScreen(
                     .padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                if (isLoading) {
-                    CircularProgressIndicator()
-                } else {
-                    Text("Профиль не найден")
-                }
+                CircularProgressIndicator()
             }
         }
         return
     }
 
-    // =====================================================
-    // ПРЕОБРАЗУЕМ ACCOUNTS В AccountUiModel
-    // =====================================================
-    val accountsUi = remember(accounts) {
-        accounts.map { account ->
-            AccountUiModel(
-                account = account,
-                address = "Адрес не указан",  // TODO: добавить Address в БД
-                lastUpdated = null, // ← null пока не парсим сайты
-                meters = emptyList()  // TODO: загрузить счетчики
-            )
-        }
-    }
-
-    // Группируем по адресам
-    val accountsByAddress = accountsUi
-        .filter { it.address != null }
-        .groupBy { it.address!! }
-
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(profile?.name ?: "Загрузка...") },  // ← Реальное имя!
+                title = { Text(profile?.name ?: "Детали профиля") },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
                     }
                 },
                 actions = {
+                    // Кнопка обновления
+                    IconButton(
+                        onClick = { viewModel.refresh() },
+                        enabled = !isLoading
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Обновить"
+                        )
+                    }
+
+                    // Меню
                     IconButton(onClick = { showMenu = true }) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
@@ -131,8 +125,6 @@ fun ProfileDetailScreen(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
-                        // ❌ УБРАЛИ "Добавить счёт" (теперь через FAB)
-
                         DropdownMenuItem(
                             text = { Text("Редактировать профиль") },
                             onClick = {
@@ -147,7 +139,6 @@ fun ProfileDetailScreen(
                 }
             )
         },
-        // ✅ ДОБАВИЛИ FAB ДЛЯ ДОБАВЛЕНИЯ СЧЁТА
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
@@ -159,12 +150,15 @@ fun ProfileDetailScreen(
                     contentDescription = "Добавить лицевой счёт"
                 )
             }
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
-        // =====================================================
+
+        // ============================================
         // ЕСЛИ НЕТ АККАУНТОВ - ПОКАЗЫВАЕМ PLACEHOLDER
-        // =====================================================
-        if (accountsUi.isEmpty()) {
+        // ============================================
+
+        if (accounts.isEmpty() && !isLoading) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -173,122 +167,237 @@ fun ProfileDetailScreen(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(32.dp)
                 ) {
                     Text(
                         text = "📭",
                         style = MaterialTheme.typography.displayLarge
                     )
                     Text(
-                        text = "Нет счетов",
+                        text = "Нет лицевых счетов",
                         style = MaterialTheme.typography.titleLarge
                     )
                     Text(
-                        text = "Нажмите кнопку + чтобы добавить первый счёт",  // ← Обновили подсказку
+                        text = "Нажмите кнопку + чтобы добавить первый счёт",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-        } else {
-            // =====================================================
-            // СПИСОК АККАУНТОВ
-            // =====================================================
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                contentPadding = paddingValues,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                accountsByAddress.forEach { (address, accountsAtAddress) ->
-                    item {
-                        AddressHeader(
-                            address = address,
-                            accountCount = accountsAtAddress.size
-                        )
-                    }
+            return@Scaffold
+        }
 
-                    items(accountsAtAddress) { accountUi ->
-                        val provider = providers[accountUi.account.providerId]
-                        if (provider != null) {
-                            AccountCard(
-                                accountUi = accountUi,
-                                provider = provider,
-                                onClick = {
-                                    // TODO: Открыть детали счета
-                                },
-                                // ✅ ПАРАМЕТР - что делать при удалении
-                                onDelete = {
-                                    // Сохраняем данные счёта и показываем диалог подтверждения
-                                    accountToDelete = accountUi
-                                    showDeleteAccountDialog = true
-                                }
+        // ============================================
+        // СПИСОК СЧЁТЧИКОВ ПО АДРЕСАМ И АККАУНТАМ
+        // ============================================
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            contentPadding = paddingValues,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Показываем загрузку
+            if (isLoading && meters.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            CircularProgressIndicator()
+                            Text(
+                                text = "Загрузка счётчиков...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
             }
-        }
-    }
 
-    // =====================================================
-    // ДИАЛОГ ПОДТВЕРЖДЕНИЯ УДАЛЕНИЯ АККАУНТА
-    // =====================================================
-    if (showDeleteAccountDialog && accountToDelete != null) {
-        AlertDialog(
-            onDismissRequest = {
-                // Закрыть диалог при клике вне его
-                showDeleteAccountDialog = false
-                accountToDelete = null
-            },
-            title = {
-                Text("Удалить лицевой счёт?")
-            },
-            text = {
-                // Показываем информацию о удаляемом счёте
-                val provider = providers[accountToDelete!!.account.providerId]
-                Text(
-                    "Лицевой счёт № ${accountToDelete!!.account.accountNumber}\n" +
-                            "${provider?.name ?: "Неизвестный провайдер"}\n\n" +
-                            "Все данные этого счёта будут удалены. Это действие нельзя отменить."
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        // Вызываем метод удаления из ViewModel
-                        accountToDelete?.let { account ->
-                            viewModel.deleteAccount(account.account.id)
-                        }
+            // Группируем счётчики по аккаунтам
+            val metersByAccount = meters.groupBy { it.accountId }
 
-                        // Закрываем диалог
-                        showDeleteAccountDialog = false
-                        accountToDelete = null
-                    },
-                    // Красная кнопка для акцента опасного действия
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Удалить")
+            // Группируем аккаунты по адресам
+            val accountsByAddress = accounts
+                .mapNotNull { account ->
+                    val address = accountAddresses[account.id]
+                    if (address != null) account to address else null
                 }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        // Отмена - просто закрываем диалог
-                        showDeleteAccountDialog = false
-                        accountToDelete = null
+                .groupBy { it.second }  // Группируем по адресу
+
+            // Отображаем по группам адресов
+            accountsByAddress.forEach { (address, accountsWithAddress) ->
+
+                // Заголовок адреса
+                item(key = "address_$address") {
+                    AddressHeader(
+                        address = address,
+                        accountCount = accountsWithAddress.size
+                    )
+                }
+
+                // Аккаунты на этом адресе
+                accountsWithAddress.forEach { (account, _) ->
+                    val accountMeters = metersByAccount[account.id] ?: emptyList()
+
+                    // Заголовок аккаунта (провайдер + номер ЛС)
+                    item(key = "account_${account.id}") {
+                        AccountHeader(
+                            account = account,
+                            meterCount = accountMeters.size,
+                            onDelete = {
+                                accountToDelete = account
+                                showDeleteAccountDialog = true
+                            }
+                        )
                     }
-                ) {
-                    Text("Отмена")
+
+                    // Счётчики аккаунта
+                    if (accountMeters.isNotEmpty()) {
+                        items(
+                            items = accountMeters,
+                            key = { it.id }
+                        ) { meter ->
+                            MeterReadingInput(
+                                meter = meter,
+                                onSubmit = { value ->
+                                    viewModel.submitReading(meter, value)
+                                },
+                                isSubmitting = submittingMeters.contains(meter.id)
+                            )
+                        }
+                    } else if (!isLoading) {
+                        // Placeholder если нет счётчиков
+                        item(key = "empty_${account.id}") {
+                            EmptyMetersPlaceholder()
+                        }
+                    }
+
+                    // Разделитель между аккаунтами
+                    item(key = "spacer_${account.id}") {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                 }
             }
-        )
+
+            // Отображаем аккаунты без адреса (если есть)
+            val accountsWithoutAddress = accounts.filter { account ->
+                accountAddresses[account.id] == null
+            }
+
+            if (accountsWithoutAddress.isNotEmpty()) {
+                item(key = "no_address_header") {
+                    AddressHeader(
+                        address = "Адрес не загружен",
+                        accountCount = accountsWithoutAddress.size
+                    )
+                }
+
+                accountsWithoutAddress.forEach { account ->
+                    val accountMeters = metersByAccount[account.id] ?: emptyList()
+
+                    item(key = "account_noaddr_${account.id}") {
+                        AccountHeader(
+                            account = account,
+                            meterCount = accountMeters.size,
+                            onDelete = {
+                                accountToDelete = account
+                                showDeleteAccountDialog = true
+                            }
+                        )
+                    }
+
+                    if (accountMeters.isNotEmpty()) {
+                        items(
+                            items = accountMeters,
+                            key = { it.id }
+                        ) { meter ->
+                            MeterReadingInput(
+                                meter = meter,
+                                onSubmit = { value ->
+                                    viewModel.submitReading(meter, value)
+                                },
+                                isSubmitting = submittingMeters.contains(meter.id)
+                            )
+                        }
+                    } else if (!isLoading) {
+                        item(key = "empty_noaddr_${account.id}") {
+                            EmptyMetersPlaceholder()
+                        }
+                    }
+
+                    item(key = "spacer_noaddr_${account.id}") {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+
+        // ============================================
+        // ДИАЛОГ УДАЛЕНИЯ АККАУНТА
+        // ============================================
+
+        if (showDeleteAccountDialog && accountToDelete != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    showDeleteAccountDialog = false
+                    accountToDelete = null
+                },
+                title = { Text("Удалить лицевой счёт?") },
+                text = {
+                    Text(
+                        "Лицевой счёт № ${accountToDelete!!.accountNumber}\n" +
+                                "Провайдер ID: ${accountToDelete!!.providerId}\n\n" +
+                                "Все данные этого счёта будут удалены. Это действие нельзя отменить."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            accountToDelete?.let { account ->
+                                viewModel.deleteAccount(account.id)
+                            }
+                            showDeleteAccountDialog = false
+                            accountToDelete = null
+                        },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("Удалить")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteAccountDialog = false
+                            accountToDelete = null
+                        }
+                    ) {
+                        Text("Отмена")
+                    }
+                }
+            )
+        }
     }
 }
 
+// ============================================
+// ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ
+// ============================================
+
+/**
+ * Заголовок адреса с количеством счетов
+ */
 @Composable
 fun AddressHeader(
     address: String,
@@ -297,7 +406,7 @@ fun AddressHeader(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
         )
     ) {
         Row(
@@ -309,113 +418,85 @@ fun AddressHeader(
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(end = 12.dp)
             )
-
             Column {
                 Text(
                     text = address,
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
-
                 Text(
-                    text = "$accountCount счетов",
+                    text = "$accountCount ${if (accountCount == 1) "счёт" else "счетов"}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
                 )
             }
         }
     }
 }
 
+/**
+ * Заголовок аккаунта (провайдер + номер ЛС)
+ */
 @Composable
-fun AccountCard(
-    accountUi: AccountUiModel,
-    provider: ProviderDomainModel,
-    onClick: () -> Unit,
+fun AccountHeader(
+    account: AccountDomainModel,
+    meterCount: Int,
     onDelete: () -> Unit
 ) {
-    // ✅ ИЗМЕНЕНИЕ: Используем enum Type вместо строк
-    val icon = when (provider.type) {
-        Type.WaterSupply -> "💧"
-        Type.ElectricitySupply -> "⚡"
-        Type.GasSupply -> "🔥"
-        // Если добавите новые типы в enum, компилятор заставит обработать их здесь!
-    }
-
-    // ✅ STATE - показывать/скрывать меню с тремя точками
     var showMenu by remember { mutableStateOf(false) }
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Иконка провайдера (эмодзи)
+            // Иконка (просто эмодзи по умолчанию)
             Text(
-                text = icon,
+                text = "💧",
                 style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(end = 16.dp)
+                modifier = Modifier.padding(end = 12.dp)
             )
 
-            // Информация о счёте
+            // Информация об аккаунте
             Column(modifier = Modifier.weight(1f)) {
-                // Тип провайдера (ЖКХ, Газ, etc)
                 Text(
-                    text = provider.type.name,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    text = "Провайдер ${account.providerId}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                // Название провайдера
                 Text(
-                    text = provider.name,
-                    style = MaterialTheme.typography.titleMedium
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Номер лицевого счёта
-                Text(
-                    text = "№ ${accountUi.account.accountNumber}",
+                    text = "№ ${account.accountNumber}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                 )
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                // Количество счётчиков
-                Text(
-                    text = "${accountUi.meters.size} счетчиков",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (meterCount > 0) {
+                    Text(
+                        text = "$meterCount ${if (meterCount == 1) "счётчик" else if (meterCount < 5) "счётчика" else "счётчиков"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                    )
+                }
             }
 
-            // =====================================================
-            // ✅ НОВОЕ - МЕНЮ С ТРЕМЯ ТОЧКАМИ (как в ProfileCard)
-            // =====================================================
+            // Меню с тремя точками
             Box {
                 IconButton(onClick = { showMenu = true }) {
                     Icon(
                         Icons.Default.MoreVert,
                         contentDescription = "Меню",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
 
-                // Выпадающее меню
                 DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
-                    // Пункт "Удалить" (красным цветом для акцента)
                     DropdownMenuItem(
                         text = {
                             Text(
@@ -425,7 +506,7 @@ fun AccountCard(
                         },
                         onClick = {
                             showMenu = false
-                            onDelete() // ← Вызываем callback
+                            onDelete()
                         },
                         leadingIcon = {
                             Icon(
@@ -437,6 +518,32 @@ fun AccountCard(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Placeholder для пустого списка счётчиков
+ */
+@Composable
+fun EmptyMetersPlaceholder() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Нет счётчиков",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

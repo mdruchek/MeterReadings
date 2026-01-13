@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import ru.dr.meterreadings.data.repository.AccountRepository
 import ru.dr.meterreadings.data.repository.ProviderRepository
 import ru.dr.meterreadings.domain.connector.HasRegions  // ← ДОБАВИТЬ
 import ru.dr.meterreadings.domain.connector.SearchAccount  // ← ДОБАВИТЬ
@@ -19,6 +20,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class AddAccountViewModel @Inject constructor(
+    private val accountRepository: AccountRepository,
     private val providerRepository: ProviderRepository,
     private val connectorFactory: ProviderConnectorFactory
 ) : ViewModel() {
@@ -279,5 +281,98 @@ class AddAccountViewModel @Inject constructor(
     fun clearSearchResult() {
         _searchedAddress.value = null
         println("🔄 [AddAccountVM] Результат поиска очищен")
+    }
+
+    // =====================================================
+    // СОЗДАНИЕ АККАУНТА
+    // =====================================================
+
+    private val _isCreating = MutableStateFlow(false)
+    val isCreating: StateFlow<Boolean> = _isCreating.asStateFlow()
+
+    private val _createdAccountId = MutableStateFlow<String?>(null)
+    val createdAccountId: StateFlow<String?> = _createdAccountId.asStateFlow()
+
+    /**
+     * Создать новый аккаунт
+     *
+     * @param profileId - ID профиля
+     * @param accountNumber - номер лицевого счёта
+     * @param login - логин (опционально)
+     * @param password - пароль (опционально)
+     */
+    fun createAccount(
+        profileId: String,
+        accountNumber: String,
+        login: String? = null,
+        password: String? = null
+    ) {
+        viewModelScope.launch {
+            _isCreating.value = true
+
+            try {
+                val providerId = _selectedProviderId.value
+                if (providerId == null) {
+                    showError("Ошибка", "Провайдер не выбран")
+                    return@launch
+                }
+
+                // ✅ Получаем regionId из состояния
+                val regionId = if (_providerHasRegions.value) {
+                    val selectedRegion = _selectedRegionId.value
+                    if (selectedRegion == null) {
+                        showError("Ошибка", "Выберите регион")
+                        return@launch
+                    }
+                    selectedRegion.toIntOrNull()
+                } else {
+                    null
+                }
+
+                println("💾 [AddAccountVM] createAccount:")
+                println("   profileId: $profileId")
+                println("   providerId: $providerId")
+                println("   accountNumber: $accountNumber")
+                println("   regionId: $regionId")  // ✅ ДОЛЖЕН БЫТЬ 15!
+
+                // Создаём аккаунт в БД
+                val accountId = accountRepository.addAccount(
+                    profileId = profileId,
+                    providerId = providerId,
+                    accountNumber = accountNumber,
+                    regionId = regionId,  // ✅ ПЕРЕДАЁМ!
+                    login = login,
+                    password = password
+                )
+
+                _createdAccountId.value = accountId
+                println("✅ [AddAccountVM] Аккаунт создан: $accountId")
+
+            } catch (e: IllegalArgumentException) {
+                showError(
+                    title = "Аккаунт уже добавлен",
+                    message = "Лицевой счёт $accountNumber уже существует в этом профиле"
+                )
+            } catch (e: Exception) {
+                showError(
+                    title = "Ошибка сохранения",
+                    message = "Не удалось сохранить аккаунт: ${e.message}"
+                )
+                e.printStackTrace()
+            } finally {
+                _isCreating.value = false
+            }
+        }
+    }
+
+
+    /**
+     * Сбросить состояние после создания
+     */
+    fun resetCreation() {
+        _createdAccountId.value = null
+        clearSelection()
+        clearSearchResult()
+        println("🔄 [AddAccountVM] Создание сброшено")
     }
 }
