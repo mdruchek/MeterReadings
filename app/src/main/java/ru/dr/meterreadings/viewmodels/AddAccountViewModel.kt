@@ -154,7 +154,7 @@ class AddAccountViewModel @Inject constructor(
             _regions.value = emptyList()
 
             try {
-                val connector = connectorFactory.getConnector(providerId.toLong())
+                val connector = connectorFactory.getConnector(providerId)
 
                 if (connector is HasRegions) {
                     println("🔍 [AddAccountVM] Провайдер поддерживает регионы, загружаем...")
@@ -236,7 +236,7 @@ class AddAccountViewModel @Inject constructor(
             _searchedAddress.value = null
 
             try {
-                val connector = connectorFactory.getConnector(providerId.toLong())
+                val connector = connectorFactory.getConnector(providerId)
 
                 // ✅ Проверяем: поддерживает ли провайдер поиск
                 if (connector is SearchAccount) {

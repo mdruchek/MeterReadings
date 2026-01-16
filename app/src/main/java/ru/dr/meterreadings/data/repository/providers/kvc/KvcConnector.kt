@@ -1,5 +1,7 @@
 package ru.dr.meterreadings.data.repository.providers.kvc
 
+import ru.dr.meterreadings.data.mappers.KvcPeriodMapper
+import ru.dr.meterreadings.domain.connector.GetTransmissionPeriod
 import ru.dr.meterreadings.domain.connector.HasRegions
 import ru.dr.meterreadings.domain.connector.ProviderConnector
 import ru.dr.meterreadings.domain.connector.SearchAccount
@@ -13,7 +15,8 @@ class KvcConnector @Inject constructor(
 ) : ProviderConnector,
     HasRegions,
     SearchAccount,
-    SubmitReadings {
+    SubmitReadings,
+    GetTransmissionPeriod {
 
     override val providerId: Long = 1L
     override val providerName: String = "КВЦ"
@@ -110,5 +113,44 @@ class KvcConnector @Inject constructor(
     ): Result<Unit> {
         // TODO: Реализовать позже используя kvcRepository.submitReading()
         return Result.failure(NotImplementedError("Передача показаний ещё не реализована"))
+    }
+
+    override suspend fun getTransmissionPeriod(
+        accountNumber: String,
+        regionId: Int?
+    ): Result<GetTransmissionPeriod.TransmissionPeriod> {
+        if (regionId == null) {
+            return Result.failure(Exception("Для КВЦ требуется указать регион"))
+        }
+
+        return try {
+            // Загружаем конфигурации БД
+            val locations = kvcRepository.getLocationsForRegion(regionId)
+                .getOrElse { return Result.failure(it) }
+
+            // Ищем абонента
+            val abonentInfo = kvcRepository.getAbonentInfo(
+                locations = locations,
+                accountNumber = accountNumber,
+                target = 0
+            ).getOrElse { return Result.failure(it) }
+
+            // Загружаем период
+            val period = kvcRepository.getTransitDays(
+                location = abonentInfo.location,
+                accountNumber = accountNumber
+            ).getOrElse { return Result.failure(it) }
+
+            // Преобразуем через маппер
+            Result.success(
+                GetTransmissionPeriod.TransmissionPeriod(
+                    startDay = KvcPeriodMapper.getStartDay(period),
+                    endDay = KvcPeriodMapper.getEndDay(period)
+                )
+            )
+
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 }

@@ -1,105 +1,75 @@
+// app/src/main/java/ru/dr/meterreadings/data/local/dao/ProfileDao.kt
+
 package ru.dr.meterreadings.data.local.dao
 
 import androidx.room.*
-import ru.dr.meterreadings.data.local.entities.ProfileEntity
 import kotlinx.coroutines.flow.Flow
+import ru.dr.meterreadings.data.local.entities.ProfileEntity
 
-/**
- * DAO (Data Access Object) для работы с таблицей profiles
- *
- * Room автоматически создаст реализацию всех методов.
- * Все операции асинхронные (suspend) или реактивные (Flow).
- */
 @Dao
 interface ProfileDao {
 
-    // ========================================
-    // ЧТЕНИЕ (SELECT)
-    // ========================================
-
     /**
-     * Получить все профили
-     *
-     * Flow - реактивный поток, автоматически обновляется при изменении БД
-     * UI будет автоматически перерисовываться при изменениях!
+     * Получить все профили (Flow для автообновления UI)
      */
     @Query("SELECT * FROM profiles ORDER BY name ASC")
     fun getAll(): Flow<List<ProfileEntity>>
 
     /**
-     * Получить профиль по ID как Flow (с автообновлением)
+     * Получить профиль по ID (Flow)
      */
-    @Query("SELECT * FROM profiles WHERE id = :id")
-    fun getById(id: String): Flow<ProfileEntity?>
+    @Query("SELECT * FROM profiles WHERE id = :profileId")
+    fun getById(profileId: String): Flow<ProfileEntity?>
 
-    // ========================================
-    // ДОБАВЛЕНИЕ/ОБНОВЛЕНИЕ (INSERT/UPDATE)
-    // ========================================
+    /**
+     * ✅ НОВОЕ: Получить профили с количеством аккаунтов
+     *
+     * Возвращает профили и количество связанных аккаунтов
+     * для отображения в списке профилей
+     */
+    @Query("""
+        SELECT 
+            p.*,
+            COUNT(a.id) as accountCount
+        FROM profiles p
+        LEFT JOIN accounts a ON p.id = a.profileId
+        GROUP BY p.id
+        ORDER BY p.name ASC
+    """)
+    fun getProfilesWithAccountCount(): Flow<List<ProfileWithAccountCount>>
 
     /**
      * Вставить новый профиль
-     *
-     * OnConflictStrategy.REPLACE:
-     * - Если профиль с таким ID существует → заменить
-     * - Если не существует → создать новый
      */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(profile: ProfileEntity)
 
     /**
-     * Вставить несколько профилей
-     */
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(profiles: List<ProfileEntity>)
-
-    /**
-     * Обновить существующий профиль
-     *
-     * Room найдёт запись по @PrimaryKey (id) и обновит все поля
+     * Обновить профиль
      */
     @Update
     suspend fun update(profile: ProfileEntity)
 
-    // ========================================
-    // УДАЛЕНИЕ (DELETE)
-    // ========================================
-
-    /**
-     * Удалить профиль (передать объект)
-     */
-    @Delete
-    suspend fun delete(profile: ProfileEntity)
-
     /**
      * Удалить профиль по ID
-     *
-     * @Query с DELETE - можно удалить по любому условию
+     * Связанные аккаунты удалятся автоматически (CASCADE)
      */
-    @Query("DELETE FROM profiles WHERE id = :id")
-    suspend fun deleteById(id: String)
+    @Query("DELETE FROM profiles WHERE id = :profileId")
+    suspend fun deleteById(profileId: String)
 
     /**
-     * Удалить все профили (осторожно!)
+     * Удалить все профили
      */
     @Query("DELETE FROM profiles")
     suspend fun deleteAll()
-
-    // ========================================
-    // СПЕЦИАЛЬНЫЕ ЗАПРОСЫ
-    // ========================================
-
-    /**
-     * Получить количество профилей
-     */
-    @Query("SELECT COUNT(*) FROM profiles")
-    suspend fun getCount(): Int
-
-    /**
-     * Проверить существование профиля с таким именем
-     *
-     * EXISTS(...) возвращает 1 если найдено, 0 если нет
-     * Room автоматически конвертирует в Boolean
-     */
-    @Query("SELECT EXISTS(SELECT 1 FROM profiles WHERE name = :name)")
-    suspend fun existsByName(name: String): Boolean
 }
+
+/**
+ * ✅ НОВОЕ: Data class для результата запроса с JOIN
+ *
+ * Room автоматически заполнит эти поля из SELECT запроса
+ */
+data class ProfileWithAccountCount(
+    @Embedded val profile: ProfileEntity,
+    val accountCount: Int
+)

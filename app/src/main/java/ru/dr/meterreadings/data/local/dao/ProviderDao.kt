@@ -1,16 +1,15 @@
+// app/src/main/java/ru/dr/meterreadings/data/local/dao/ProviderDao.kt
+
 package ru.dr.meterreadings.data.local.dao
 
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 import ru.dr.meterreadings.data.local.entities.ProviderEntity
 
-/**
- * DAO (Data Access Object) для работы с таблицей providers
- */
 @Dao
 interface ProviderDao {
 
-    @Query("SELECT * FROM providers ORDER BY type ASC, name ASC")
+    @Query("SELECT * FROM providers ORDER BY name ASC")
     fun getAll(): Flow<List<ProviderEntity>>
 
     @Query("SELECT * FROM providers WHERE id = :id")
@@ -22,6 +21,9 @@ interface ProviderDao {
     @Query("SELECT * FROM providers WHERE name LIKE '%' || :query || '%' ORDER BY name ASC")
     fun searchByName(query: String): Flow<List<ProviderEntity>>
 
+    @Query("SELECT EXISTS(SELECT 1 FROM providers WHERE id = :id)")
+    suspend fun exists(id: String): Boolean  // ✅ ИСПРАВЛЕНО: String → Long
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(provider: ProviderEntity)
 
@@ -31,21 +33,12 @@ interface ProviderDao {
     @Update
     suspend fun update(provider: ProviderEntity)
 
-    @Delete
-    suspend fun delete(provider: ProviderEntity)
-
     @Query("DELETE FROM providers WHERE id = :id")
-    suspend fun deleteById(id: String)
+    suspend fun deleteById(id: Long)  // ✅ ИСПРАВЛЕНО: String → Long
 
     @Query("DELETE FROM providers")
     suspend fun deleteAll()
 
     @Query("SELECT COUNT(*) FROM providers")
     suspend fun getCount(): Int
-
-    @Query("SELECT EXISTS(SELECT 1 FROM providers WHERE id = :id)")
-    suspend fun exists(id: String): Boolean
-
-    @Query("SELECT EXISTS(SELECT 1 FROM providers WHERE name = :name)")
-    suspend fun existsByName(name: String): Boolean
 }

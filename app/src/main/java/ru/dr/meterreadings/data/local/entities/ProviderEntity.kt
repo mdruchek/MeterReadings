@@ -1,3 +1,5 @@
+// app/src/main/java/ru/dr/meterreadings/data/local/entities/ProviderEntity.kt
+
 package ru.dr.meterreadings.data.local.entities
 
 import androidx.room.Entity
@@ -8,25 +10,56 @@ import ru.dr.meterreadings.models.domain.Type
 
 /**
  * Entity (таблица) для провайдеров услуг в базе данных
- *
- * Содержит информацию о компаниях-поставщиках услуг
  */
 @Entity(tableName = "providers")
 data class ProviderEntity(
     @PrimaryKey
     val id: String,
-    // Название компании (например: "Мосводоканал")
+
+    // ============================================
+    // ОСНОВНАЯ ИНФОРМАЦИЯ
+    // ============================================
     val name: String,
-    // ✅ ИЗМЕНЕНИЕ: Тип услуги как строка (для хранения в БД)
-    // Храним enum как String, потому что Room не умеет напрямую хранить enum
-    val type: String,
-    // URL логотипа компании (может быть null)
+    val type: String,              // Type.name (для Room)
     val logoUrl: String? = null,
-    // Базовый URL сайта для парсинга
     val baseUrl: String,
-    // Тип аутентификации (тоже как строка)
-    val authType: String,
-    // Технические поля
+    val authType: String,          // AuthType.name (для Room)
+
+    // ============================================
+    // ПЕРИОД ПЕРЕДАЧИ ПОКАЗАНИЙ
+    // ============================================
+    val transmissionPeriodStartDay: Int? = null,
+    val transmissionPeriodEndDay: Int? = null,
+    val lastPeriodUpdate: Long? = null,
+    val periodLoadedForMonth: String? = null,
+
+    // ============================================
+    // НАСТРОЙКИ АВТООБНОВЛЕНИЯ
+    // ============================================
+    val autoUpdateEnabled: Boolean = false,
+    val updateStartDay: Int = 1,
+    val updateIntervalHours: Int = 1,
+    val lastAutoUpdate: Long? = null,              // ✨ НОВОЕ
+
+    // ============================================
+    // НАСТРОЙКИ УВЕДОМЛЕНИЙ
+    // ============================================
+    val updateNotificationsEnabled: Boolean = true,
+    val errorNotificationsEnabled: Boolean = true, // ✨ НОВОЕ
+
+    // ============================================
+    // НАСТРОЙКИ НАПОМИНАНИЙ
+    // ============================================
+    val reminderEnabled: Boolean = true,
+    val reminderTimeHour: Int = 9,
+    val reminderTimeMinute: Int = 0,
+    val reminderPeriodMode: String = "AUTO",       // ✨ НОВОЕ
+    val reminderCustomStartDay: Int? = null,       // ✨ НОВОЕ
+    val reminderCustomEndDay: Int? = null,         // ✨ НОВОЕ
+
+    // ============================================
+    // ТЕХНИЧЕСКИЕ ПОЛЯ
+    // ============================================
     val createdAt: Long,
     val updatedAt: Long
 )
@@ -42,12 +75,34 @@ fun ProviderEntity.toDomain(): ProviderDomainModel {
     return ProviderDomainModel(
         id = id,
         name = name,
-        // ✅ ИЗМЕНЕНИЕ: Конвертируем строку обратно в enum Type
         type = Type.valueOf(type),
         logoUrl = logoUrl,
         baseUrl = baseUrl,
-        // Конвертируем строку обратно в enum AuthType
-        authType = AuthType.valueOf(authType)
+        authType = AuthType.valueOf(authType),
+
+        // Период передачи
+        transmissionPeriodStartDay = transmissionPeriodStartDay,
+        transmissionPeriodEndDay = transmissionPeriodEndDay,
+        lastPeriodUpdate = lastPeriodUpdate,
+        periodLoadedForMonth = periodLoadedForMonth,
+
+        // Автообновление
+        autoUpdateEnabled = autoUpdateEnabled,
+        updateStartDay = updateStartDay,
+        updateIntervalHours = updateIntervalHours,
+        lastAutoUpdate = lastAutoUpdate,                   // ✨ НОВОЕ
+
+        // Уведомления
+        updateNotificationsEnabled = updateNotificationsEnabled,
+        errorNotificationsEnabled = errorNotificationsEnabled,  // ✨ НОВОЕ
+
+        // Напоминания
+        reminderEnabled = reminderEnabled,
+        reminderTimeHour = reminderTimeHour,
+        reminderTimeMinute = reminderTimeMinute,
+        reminderPeriodMode = reminderPeriodMode,           // ✨ НОВОЕ
+        reminderCustomStartDay = reminderCustomStartDay,   // ✨ НОВОЕ
+        reminderCustomEndDay = reminderCustomEndDay        // ✨ НОВОЕ
     )
 }
 
@@ -61,13 +116,35 @@ fun ProviderDomainModel.toEntity(
     return ProviderEntity(
         id = id,
         name = name,
-        // ✅ ИЗМЕНЕНИЕ: Конвертируем enum Type в строку для БД
-        // Type.WaterSupply → "WaterSupply"
         type = type.name,
         logoUrl = logoUrl,
         baseUrl = baseUrl,
-        // Конвертируем enum AuthType в строку
         authType = authType.name,
+
+        // Период передачи
+        transmissionPeriodStartDay = transmissionPeriodStartDay,
+        transmissionPeriodEndDay = transmissionPeriodEndDay,
+        lastPeriodUpdate = lastPeriodUpdate,
+        periodLoadedForMonth = periodLoadedForMonth,
+
+        // Автообновление
+        autoUpdateEnabled = autoUpdateEnabled,
+        updateStartDay = updateStartDay,
+        updateIntervalHours = updateIntervalHours,
+        lastAutoUpdate = lastAutoUpdate,                   // ✨ НОВОЕ
+
+        // Уведомления
+        updateNotificationsEnabled = updateNotificationsEnabled,
+        errorNotificationsEnabled = errorNotificationsEnabled,  // ✨ НОВОЕ
+
+        // Напоминания
+        reminderEnabled = reminderEnabled,
+        reminderTimeHour = reminderTimeHour,
+        reminderTimeMinute = reminderTimeMinute,
+        reminderPeriodMode = reminderPeriodMode,           // ✨ НОВОЕ
+        reminderCustomStartDay = reminderCustomStartDay,   // ✨ НОВОЕ
+        reminderCustomEndDay = reminderCustomEndDay,       // ✨ НОВОЕ
+
         createdAt = createdAt,
         updatedAt = updatedAt
     )

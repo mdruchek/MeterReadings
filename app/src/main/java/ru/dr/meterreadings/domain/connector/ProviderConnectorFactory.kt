@@ -10,9 +10,9 @@ class ProviderConnectorFactory @Inject constructor(
     private val kvcConnector: KvcConnector
 ) {
 
-    fun getConnector(providerId: Long): ProviderConnector {
+    fun getConnector(providerId: String): ProviderConnector {
         return when (providerId) {
-            ProviderIds.KVC -> kvcConnector
+            ProviderIds.KVC.toString() -> kvcConnector
             else -> throw IllegalArgumentException(
                 "Провайдер с ID=$providerId не поддерживается"
             )

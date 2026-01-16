@@ -1,9 +1,8 @@
+// app/src/main/java/ru/dr/meterreadings/data/database/DatabaseInitializer.kt
+
 package ru.dr.meterreadings.data.database
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import ru.dr.meterreadings.data.repository.ProviderRepository
 import ru.dr.meterreadings.domain.constants.ProviderIds
 import ru.dr.meterreadings.models.domain.AuthType
@@ -17,39 +16,91 @@ class DatabaseInitializer @Inject constructor(
     private val providerRepository: ProviderRepository
 ) {
 
-    fun initializeProviders() {
-        CoroutineScope(Dispatchers.IO).launch {
-            val existingProviders = providerRepository.getAllProviders().first()
+    suspend fun initializeProviders() {
+        val existingProviders = providerRepository.getAllProviders().first()
 
-            if (existingProviders.isEmpty()) {
-                println("✅ [DatabaseInitializer] Добавляем провайдеров...")
+        if (existingProviders.isEmpty()) {
+            println("✅ [DatabaseInitializer] Добавляем провайдеров...")
 
-                // КВЦ Нижегородская область
-                providerRepository.addProvider(
-                    ProviderDomainModel(
-                        id = ProviderIds.KVC.toString(),
-                        name = "КВЦ",
-                        type = Type.WaterSupply,
-                        authType = AuthType.ACCOUNT_NUMBER,
-                        baseUrl = "https://send.kvc-nn.ru"
-                    )
+            // КВЦ Нижегородская область
+            providerRepository.addProvider(
+                ProviderDomainModel(
+                    id = ProviderIds.KVC.toString(),
+                    name = "КВЦ",
+                    type = Type.WaterSupply,
+                    authType = AuthType.ACCOUNT_NUMBER,
+                    baseUrl = "https://send.kvc-nn.ru",
+                    logoUrl = null,
+
+                    // ============================================
+                    // ПЕРИОД ПЕРЕДАЧИ (загрузится из API)
+                    // ============================================
+                    transmissionPeriodStartDay = null,
+                    transmissionPeriodEndDay = null,
+                    lastPeriodUpdate = null,
+                    periodLoadedForMonth = null,
+
+                    // ============================================
+                    // АВТООБНОВЛЕНИЕ
+                    // ============================================
+                    autoUpdateEnabled = true,
+                    updateStartDay = 1,
+                    updateIntervalHours = 6,
+                    lastAutoUpdate = null,              // ✨ НОВОЕ
+
+                    // ============================================
+                    // УВЕДОМЛЕНИЯ
+                    // ============================================
+                    updateNotificationsEnabled = true,
+                    errorNotificationsEnabled = true,   // ✨ НОВОЕ
+
+                    // ============================================
+                    // НАПОМИНАНИЯ
+                    // ============================================
+                    reminderEnabled = true,
+                    reminderTimeHour = 9,
+                    reminderTimeMinute = 0,
+                    reminderPeriodMode = "AUTO",        // ✨ НОВОЕ
+                    reminderCustomStartDay = null,      // ✨ НОВОЕ
+                    reminderCustomEndDay = null         // ✨ НОВОЕ
                 )
+            )
 
-                // В будущем добавите других провайдеров:
-                // providerRepository.insertProvider(
-                //     ProviderDomainModel(
-                //         id = ProviderIds.TNS_ENERGO.toString(),
-                //         name = "ТНС Энерго",
-                //         type = Type.ElectricitySupply,
-                //         authType = AuthType.PASSWORD,
-                //         url = "https://www.tns-e.ru"
-                //     )
-                // )
+            // В будущем добавите других провайдеров:
+            // providerRepository.addProvider(
+            //     ProviderDomainModel(
+            //         id = ProviderIds.TNS.toString(),
+            //         name = "ТНС Энерго",
+            //         type = Type.ElectricitySupply,
+            //         authType = AuthType.API_KEY,
+            //         baseUrl = "https://www.tns-e.ru",
+            //         logoUrl = null,
+            //
+            //         transmissionPeriodStartDay = null,
+            //         transmissionPeriodEndDay = null,
+            //         lastPeriodUpdate = null,
+            //         periodLoadedForMonth = null,
+            //
+            //         autoUpdateEnabled = true,
+            //         updateStartDay = 1,
+            //         updateIntervalHours = 6,
+            //         lastAutoUpdate = null,
+            //
+            //         updateNotificationsEnabled = true,
+            //         errorNotificationsEnabled = true,
+            //
+            //         reminderEnabled = true,
+            //         reminderTimeHour = 9,
+            //         reminderTimeMinute = 0,
+            //         reminderPeriodMode = "AUTO",
+            //         reminderCustomStartDay = null,
+            //         reminderCustomEndDay = null
+            //     )
+            // )
 
-                println("✅ [DatabaseInitializer] Провайдеры добавлены")
-            } else {
-                println("ℹ️ [DatabaseInitializer] Провайдеры уже есть (${existingProviders.size})")
-            }
+            println("✅ [DatabaseInitializer] Провайдеры добавлены")
+        } else {
+            println("ℹ️ [DatabaseInitializer] Провайдеры уже есть (${existingProviders.size})")
         }
     }
 }

@@ -2,124 +2,141 @@
 
 package ru.dr.meterreadings.data.mappers
 
+import ru.dr.meterreadings.data.local.entities.MeterEntity
 import ru.dr.meterreadings.data.remote.dto.KvcCounterDto
 import ru.dr.meterreadings.models.ui.MeterUiModel
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 /**
- * Маппер для преобразования счётчиков КВЦ из API в UI модели
+ * Маппер для преобразования счётчиков КВЦ
  */
 object KvcMeterMapper {
 
+    // ========================================
+    // МАППИНГ В UI (для отображения)
+    // ========================================
+
     /**
-     * Преобразует счётчик КВЦ из API в UI модель
-     *
-     * @param kvcCounter - счётчик из KVC API
-     * @param accountId - ID аккаунта (лицевой счёт)
-     * @return UI модель для отображения
+     * Преобразует счётчик КВЦ в UI модель для отображения
      */
     fun mapToUi(
         kvcCounter: KvcCounterDto,
         accountId: String
     ): MeterUiModel {
         return MeterUiModel(
-            // Уникальный ID: account_counterid
             id = "${accountId}_${kvcCounter.idCnt}",
-
-            // Привязываем к аккаунту
             accountId = accountId,
-
-            // Тип счётчика
-            // Для двухтарифных добавляем "(день/ночь)"
             type = if (kvcCounter.idTtype == "2T") {
                 "${kvcCounter.servName.trim()} (${kvcCounter.idTtype})"
             } else {
                 kvcCounter.servName.trim()
             },
-
-            // Заводской номер
             serialNumber = kvcCounter.number.trim(),
-
-            // Последнее показание (целое число)
             lastValue = parseValueAsInt(kvcCounter.cValLst),
-
-            // Дата последней передачи
-            lastUpdateDate = parseDate(kvcCounter.datLst)
+            lastUpdateDate = parseTimestamp(kvcCounter.datLst)
         )
     }
 
     /**
-     * Преобразует список счётчиков КВЦ
+     * Преобразует список счётчиков КВЦ в UI модели
      */
     fun mapListToUi(
         kvcCounters: List<KvcCounterDto>,
         accountId: String
     ): List<MeterUiModel> {
         return kvcCounters
-            .filter { it.canEdit() }  // Только редактируемые
+            .filter { it.canEdit() }
             .map { mapToUi(it, accountId) }
     }
 
+    // ========================================
+    // МАППИНГ В ENTITY (для БД и уведомлений)
+    // ========================================
+
     /**
-     * Парсит значение показания как целое число
-     *
-     * КВЦ API возвращает строки типа:
-     * - "123" → 123
-     * - "123.45" → 123 (отбрасываем дробную часть)
-     * - "123,45" → 123 (отбрасываем дробную часть)
-     * - "0" → null
-     * - "" → null
-     *
-     * @param value строка показания
-     * @return Int или null если не удалось распарсить
+     * Преобразует список счётчиков КВЦ в Entity для сохранения в БД
+     */
+    fun mapListToEntity(
+        kvcCounters: List<KvcCounterDto>,
+        accountId: String
+    ): List<MeterEntity> {
+        return kvcCounters
+            .filter { it.canEdit() }
+            .map { kvcCounter ->
+                MeterEntity(
+                    id = "${accountId}_${kvcCounter.idCnt}",
+                    accountId = accountId,
+                    apiCounterId = kvcCounter.idCnt,
+                    type = if (kvcCounter.idTtype == "2T") {  // ✅ ДОБАВЛЕНО
+                        "${kvcCounter.servName.trim()} (${kvcCounter.idTtype})"
+                    } else {
+                        kvcCounter.servName.trim()
+                    },
+                    serialNumber = kvcCounter.number.trim(),  // ✅ ДОБАВЛЕНО
+                    lastSubmissionDate = parseSubmissionDate(kvcCounter.datLst)
+                )
+            }
+    }
+
+    // ========================================
+    // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+    // ========================================
+
+    /**
+     * Парсит показание как целое число
      */
     private fun parseValueAsInt(value: String): Int? {
         if (value.isBlank() || value == "0") return null
-
         return try {
-            // Убираем дробную часть если есть
             val cleaned = value.trim().replace(",", ".")
-            val doubleValue = cleaned.toDoubleOrNull()
-            doubleValue?.toInt()  // ✅ Преобразуем Double → Int
+            cleaned.toDoubleOrNull()?.toInt()
         } catch (e: Exception) {
             null
         }
     }
 
     /**
-     * Парсит дату из строки КВЦ в timestamp
-     *
-     * Поддерживаемые форматы:
-     * - "2025-01-12T00:00:00" (ISO с временем)
-     * - "2025-01-12" (ISO)
-     * - "12.01.2025" (российский)
-     *
-     * @param dateString строка даты
-     * @return timestamp в миллисекундах или null
+     * Парсит дату в timestamp (для UI)
      */
-    private fun parseDate(dateString: String): Long? {
+    private fun parseTimestamp(dateString: String): Long? {
         if (dateString.isBlank()) return null
 
-        // Список форматов для попытки парсинга
         val formats = listOf(
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US),
             SimpleDateFormat("yyyy-MM-dd", Locale.US),
-            SimpleDateFormat("dd.MM.yyyy", Locale("ru")),
-            SimpleDateFormat("dd/MM/yyyy", Locale.US)
+            SimpleDateFormat("dd.MM.yyyy", Locale("ru"))
         )
 
-        // Пробуем каждый формат
         for (format in formats) {
             try {
                 return format.parse(dateString.trim())?.time
             } catch (e: Exception) {
-                // Продолжаем со следующим форматом
                 continue
             }
         }
-
-        // Не удалось распарсить
         return null
+    }
+
+    /**
+     * Парсит дату в формат dd.MM.yyyy (для Entity)
+     */
+    private fun parseSubmissionDate(dateString: String): String? {
+        if (dateString.isBlank()) return null
+
+        return try {
+            val datePart = dateString.substringBefore("T")
+            val parts = datePart.split("-")
+            if (parts.size == 3) {
+                val year = parts[0]
+                val month = parts[1]
+                val day = parts[2]
+                "$day.$month.$year"
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 }

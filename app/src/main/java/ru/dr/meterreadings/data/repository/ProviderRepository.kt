@@ -1,40 +1,18 @@
+// app/src/main/java/ru/dr/meterreadings/data/repository/ProviderRepository.kt
+
 package ru.dr.meterreadings.data.repository
 
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.request.parameter
-import io.ktor.client.statement.HttpResponse
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import ru.dr.meterreadings.data.remote.dto.KvcRegionDto
 import ru.dr.meterreadings.data.local.dao.ProviderDao
 import ru.dr.meterreadings.data.local.entities.toDomain
 import ru.dr.meterreadings.data.local.entities.toEntity
-import ru.dr.meterreadings.models.domain.AuthType
 import ru.dr.meterreadings.models.domain.ProviderDomainModel
 import ru.dr.meterreadings.models.domain.Type
-import ru.dr.meterreadings.data.remote.dto.CounterForInsertDto
-import ru.dr.meterreadings.data.remote.dto.GetAbonentInfoRequest
-import ru.dr.meterreadings.data.remote.dto.GetCntListRequest
-import ru.dr.meterreadings.data.remote.dto.GetCtrDaysRequest
-import ru.dr.meterreadings.data.remote.dto.InsertCtrRequest
-import ru.dr.meterreadings.data.remote.dto.KvcCounterDto
-import ru.dr.meterreadings.data.remote.dto.KvcLocationDto
-import ru.dr.meterreadings.data.remote.dto.KvcAbonentInfoDto
-import ru.dr.meterreadings.data.remote.dto.KvcTransitDaysDto
-import java.text.SimpleDateFormat
-import java.time.Instant
-import java.time.ZoneOffset
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -62,8 +40,10 @@ class ProviderRepository @Inject constructor(
 
     /**
      * Получить провайдера по ID
+     *
+     * @param id ID провайдера (String, например ProviderIds.KVC)
      */
-    fun getProviderById(id: String): Flow<ProviderDomainModel?> {
+    fun getProviderById(id: String): Flow<ProviderDomainModel?> {  // ✅ ИСПРАВЛЕНО: String → Long
         return providerDao.getById(id).map { it?.toDomain() }
     }
 
@@ -103,6 +83,7 @@ class ProviderRepository @Inject constructor(
 
         val entity = provider.toEntity()
         providerDao.insert(entity)
+        println("✅ [ProviderRepository] Провайдер добавлен: ${provider.name}")  // ✅ ДОБАВЛЕНО
     }
 
     /**
@@ -118,13 +99,17 @@ class ProviderRepository @Inject constructor(
         )
 
         providerDao.update(updatedEntity)
+        println("✅ [ProviderRepository] Провайдер обновлён: ${provider.name}")  // ✅ ДОБАВЛЕНО
     }
 
     /**
      * Удалить провайдера
+     *
+     * @param id ID провайдера (Long, например ProviderIds.KVC)
      */
-    suspend fun deleteProvider(id: String) {
+    suspend fun deleteProvider(id: Long) {  // ✅ ИСПРАВЛЕНО: String → Long
         providerDao.deleteById(id)
+        println("✅ [ProviderRepository] Провайдер удалён: $id")  // ✅ ДОБАВЛЕНО
     }
 
     // ========================================
@@ -136,5 +121,45 @@ class ProviderRepository @Inject constructor(
      */
     suspend fun getProviderCount(): Int {
         return providerDao.getCount()
+    }
+
+    /**
+     * Обновить период передачи показаний для провайдера.
+     * Обновляет только если период ещё не загружен для текущего месяца.
+     *
+     * @param providerId ID провайдера (Long)
+     * @param periodStartDay День начала периода (например 15)
+     * @param periodEndDay День окончания периода (например 22)
+     */
+    suspend fun updateProviderTransmissionPeriod(
+        providerId: Long,
+        periodStartDay: Int,
+        periodEndDay: Int
+    ) {
+        try {
+            val provider = providerDao.getById(providerId.toString()).first()
+
+            if (provider != null) {
+                val currentMonth = LocalDate.now()
+                    .format(DateTimeFormatter.ofPattern("yyyy-MM"))
+
+                val updated = provider.copy(
+                    transmissionPeriodStartDay = periodStartDay,
+                    transmissionPeriodEndDay = periodEndDay,
+                    lastPeriodUpdate = System.currentTimeMillis(),
+                    periodLoadedForMonth = currentMonth,
+                    updatedAt = System.currentTimeMillis()
+                )
+
+                providerDao.update(updated)
+
+                println("✅ [ProviderRepository] Период обновлён для провайдера $providerId")
+                println("   Дни: $periodStartDay - $periodEndDay")
+                println("   Месяц: $currentMonth")
+            }
+        } catch (e: Exception) {
+            println("❌ [ProviderRepository] Ошибка обновления периода: ${e.message}")
+            e.printStackTrace()
+        }
     }
 }

@@ -41,19 +41,7 @@ class ProfileViewModel @Inject constructor(
      * - initialValue: emptyList() - начальное значение пока БД не ответила
      */
     val profiles: StateFlow<List<ProfileUiModel>> = repository
-        .getAllProfiles()  // Flow<List<ProfileDomainModel>> из Repository
-        .map { domainProfiles ->
-            // Конвертируем Domain → UI
-            domainProfiles.map { domain ->
-                ProfileUiModel(
-                    profile = domain,
-                    addressCount = 0,  // TODO: посчитать из Account
-                    accountCount = 0,  // TODO: посчитать из Account
-                    readingsCount = 0,
-                    lastUpdateDate = null  // TODO: взять из Account
-                )
-            }
-        }
+        .getProfilesWithAccountCount()  // Flow<List<ProfileDomainModel>> из Repository
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -80,22 +68,6 @@ class ProfileViewModel @Inject constructor(
      */
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
-
-    // ========================================
-    // INIT - Инициализация
-    // ========================================
-
-    init {
-        // При создании ViewModel - создать дефолтный профиль если БД пустая
-        viewModelScope.launch {
-            val count = repository.getProfileCount()
-            println("📊 Профилей в БД: $count")
-            if (count == 0) {
-                println("✨ Создаём дефолтный профиль")
-                createDefaultProfile()
-            }
-        }
-    }
 
     // ========================================
     // ДЕЙСТВИЯ (ACTIONS)
@@ -157,21 +129,6 @@ class ProfileViewModel @Inject constructor(
     }
 
     /**
-     * Обновить профиль (универсальный метод)
-     */
-    fun updateProfile(profile: ProfileDomainModel) {
-        viewModelScope.launch {
-            try {
-                repository.updateProfile(profile)
-            } catch (e: IllegalArgumentException) {
-                _error.value = e.message  // "Profile not found"
-            } catch (e: Exception) {
-                _error.value = "Ошибка обновления: ${e.message}"
-            }
-        }
-    }
-
-    /**
      * Обновить только имя профиля (с валидацией)
      */
     fun updateProfileName(profileId: String, newName: String) {
@@ -197,20 +154,16 @@ class ProfileViewModel @Inject constructor(
     fun updateProfileIcon(profileId: String, newIcon: String) {
         viewModelScope.launch {
             try {
-                val domainProfile = repository.getProfileById(profileId).first()
-                if (domainProfile != null) {
-                    repository.updateProfile(domainProfile.copy(icon = newIcon))
-                    println("✅ Иконка обновлена")
-                } else {
-                    _error.value = "Профиль не найден"
-                }
+                repository.updateProfileIcon(profileId, newIcon)  // ✅
+                println("✅ Иконка обновлена")
             } catch (e: IllegalArgumentException) {
-                _error.value = e.message
+                _error.value = e.message  // "Profile not found"
             } catch (e: Exception) {
                 _error.value = "Ошибка обновления иконки: ${e.message}"
             }
         }
     }
+
 
     /**
      * Удалить профиль
@@ -257,27 +210,5 @@ class ProfileViewModel @Inject constructor(
      */
     fun clearError() {
         _error.value = null
-    }
-
-    // ========================================
-    // ПРИВАТНЫЕ МЕТОДЫ
-    // ========================================
-
-    /**
-     * Создать дефолтный профиль при первом запуске
-     */
-    private suspend fun createDefaultProfile() {
-        try {
-            val profileId = repository.createProfile("Моя недвижимость")
-            //                        ↑ Новый метод (генерирует ID сам)
-            println("✅ Создан дефолтный профиль с ID: $profileId")
-
-        } catch (e: IllegalArgumentException) {
-            // Профиль с таким именем уже существует (не должно произойти)
-            println("⚠️ Дефолтный профиль уже существует: ${e.message}")
-        } catch (e: Exception) {
-            println("❌ Ошибка создания дефолтного профиля: ${e.message}")
-            _error.value = "Не удалось создать профиль"
-        }
     }
 }

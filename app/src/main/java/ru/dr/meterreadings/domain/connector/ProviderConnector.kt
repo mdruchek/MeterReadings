@@ -49,6 +49,21 @@ interface SubmitReadings {
     ): Result<Unit>
 }
 
+/**
+ * Провайдер поддерживает получение периода передачи показаний
+ */
+interface GetTransmissionPeriod {
+    suspend fun getTransmissionPeriod(
+        accountNumber: String,
+        regionId: Int? = null
+    ): Result<TransmissionPeriod>
+
+    data class TransmissionPeriod(
+        val startDay: Int,  // День начала (1-31)
+        val endDay: Int     // День окончания (1-31)
+    )
+}
+
 // ============================================
 // Типы ресурсов
 // ============================================

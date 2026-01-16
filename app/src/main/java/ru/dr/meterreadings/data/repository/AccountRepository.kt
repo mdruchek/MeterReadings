@@ -29,6 +29,15 @@ class AccountRepository @Inject constructor(
     }
 
     /**
+     * Получить все аккаунты (для Worker и фоновых задач)
+     */
+    fun getAllAccounts(): Flow<List<AccountDomainModel>> {
+        return accountDao.getAll().map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
+    /**
      * Получить account по ID
      */
     fun getAccountById(accountId: String): Flow<AccountDomainModel?> {

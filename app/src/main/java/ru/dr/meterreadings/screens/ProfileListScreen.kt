@@ -52,7 +52,16 @@ fun ProfileListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Профили") }
+                title = { Text("Профили") },
+                // ✨ КНОПКА НАСТРОЕК
+                IconButton(
+                    onClick = { navController.navigate("settings") }
+                ) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = "Настройки"
+                    )
+                }
             )
         },
         // Круглая кнопка плавающего действия

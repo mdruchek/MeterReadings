@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -119,6 +120,12 @@ fun ProfileDetailScreen(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "Меню"
                         )
+                    }
+
+                    IconButton(onClick = {
+                        navController.navigate("provider_settings/1")  // 1 = ID провайдера КВЦ
+                    }) {
+                        Icon(Icons.Default.Settings, "Настройки")
                     }
 
                     DropdownMenu(
