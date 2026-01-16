@@ -133,21 +133,21 @@ fun ProviderSettingsScreen(
 /**
  * Группа настроек с заголовком
  */
-@Composable
-fun SettingsGroup(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-        )
-        content()
-    }
-}
+//@Composable
+//fun SettingsGroup(
+//    title: String,
+//    content: @Composable ColumnScope.() -> Unit
+//) {
+//    Column(modifier = Modifier.fillMaxWidth()) {
+//        Text(
+//            text = title,
+//            style = MaterialTheme.typography.titleSmall,
+//            color = MaterialTheme.colorScheme.primary,
+//            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+//        )
+//        content()
+//    }
+//}
 
 /**
  * Настройки напоминаний

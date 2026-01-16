@@ -122,12 +122,6 @@ fun ProfileDetailScreen(
                         )
                     }
 
-                    IconButton(onClick = {
-                        navController.navigate("provider_settings/1")  // 1 = ID провайдера КВЦ
-                    }) {
-                        Icon(Icons.Default.Settings, "Настройки")
-                    }
-
                     DropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
