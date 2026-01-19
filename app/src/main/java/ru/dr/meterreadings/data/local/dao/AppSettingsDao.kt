@@ -71,4 +71,15 @@ interface AppSettingsDao {
      */
     @Query("UPDATE app_settings SET globalNotificationsEnabled = :enabled, updatedAt = :updatedAt WHERE id = 1")
     suspend fun updateGlobalNotifications(enabled: Boolean, updatedAt: Long = System.currentTimeMillis())
+
+    /**
+     * Обновить только флаг глобальных уведомлений провайдеров.
+     *
+     * Это более эффективно, чем обновлять весь объект,
+     * если меняется только один флаг.
+     *
+     * @param enabled Новое значение флага
+     */
+    @Query("UPDATE app_settings SET providerNotificationsEnabled = :enabled, updatedAt = :updatedAt WHERE id = 1")
+    suspend fun updateProviderNotifications(enabled: Boolean, updatedAt: Long = System.currentTimeMillis())
 }

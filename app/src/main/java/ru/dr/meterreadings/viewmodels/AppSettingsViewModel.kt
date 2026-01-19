@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import ru.dr.meterreadings.data.local.entities.AppSettingsEntity
+import ru.dr.meterreadings.models.domain.AppSettingsDomainModel
 import ru.dr.meterreadings.data.repository.AppSettingsRepository
 import javax.inject.Inject
 
@@ -33,8 +33,8 @@ class AppSettingsViewModel @Inject constructor(
      * StateFlow автоматически обновляет UI при изменениях в БД.
      * Инициализируется null, потом загружается из Repository.
      */
-    private val _settings = MutableStateFlow<AppSettingsEntity?>(null)
-    val settings: StateFlow<AppSettingsEntity?> = _settings.asStateFlow()
+    private val _settings = MutableStateFlow<AppSettingsDomainModel?>(null)
+    val settings: StateFlow<AppSettingsDomainModel?> = _settings.asStateFlow()
 
     /**
      * Флаг загрузки данных.
@@ -108,6 +108,33 @@ class AppSettingsViewModel @Inject constructor(
                 // и настройки обновятся в _settings через collect
 
                 println("✅ [AppSettingsViewModel] Глобальные уведомления обновлены: $enabled")
+
+            } catch (e: Exception) {
+                _error.value = "Ошибка сохранения: ${e.message}"
+                println("❌ [AppSettingsViewModel] Ошибка сохранения: ${e.message}")
+                e.printStackTrace()
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Обновить флаг уведомлений провайдеров.
+     *
+     * Вызывается из UI при переключении Switch.
+     *
+     * @param enabled true = включить уведомления провайдеров, false = выключить
+     */
+    fun updateProviderNotifications(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                _isLoading.value = true
+
+                // Сохраняем в БД через Repository
+                repository.updateProviderNotifications(enabled)
+
+                println("✅ [AppSettingsViewModel] Уведомления провайдеров обновлены: $enabled")
 
             } catch (e: Exception) {
                 _error.value = "Ошибка сохранения: ${e.message}"

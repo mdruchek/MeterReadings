@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -85,6 +86,24 @@ fun AppSettingsScreen(
                             viewModel.updateGlobalNotifications(enabled)
                         }
                     )
+
+                    // Показываем настройки провайдеров только если глобальные уведомления включены
+                    if (settings!!.globalNotificationsEnabled) {
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        HorizontalDivider()
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Переключатель уведомлений провайдеров
+                        ProviderNotificationSwitch(
+                            enabled = settings!!.providerNotificationsEnabled,
+                            isLoading = isLoading,
+                            onCheckedChange = { enabled ->
+                                viewModel.updateProviderNotifications(enabled)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -282,6 +301,60 @@ private fun GlobalNotificationSwitch(
             checked = enabled,
             onCheckedChange = onCheckedChange,
             enabled = !isLoading  // Отключаем во время сохранения
+        )
+    }
+}
+
+/**
+ * Глобальный переключатель уведомлений для всех провайдеров.
+ *
+ * Включает/выключает уведомления провайдеров независимо от их индивидуальных настроек.
+ * Показывается только если глобальные уведомления включены.
+ */
+@Composable
+private fun ProviderNotificationSwitch(
+    enabled: Boolean,
+    isLoading: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Business,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = "Уведомления провайдеров",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = if (enabled) {
+                        "Уведомления для всех провайдеров включены"
+                    } else {
+                        "Уведомления провайдеров отключены"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Switch(
+            checked = enabled,
+            onCheckedChange = onCheckedChange,
+            enabled = !isLoading
         )
     }
 }
