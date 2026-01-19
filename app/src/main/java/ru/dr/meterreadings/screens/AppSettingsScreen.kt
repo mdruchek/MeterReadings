@@ -1,19 +1,26 @@
 // app/src/main/java/ru/dr/meterreadings/screens/AppSettingsScreen.kt
 package ru.dr.meterreadings.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import ru.dr.meterreadings.models.ui.AppThemeMode
+import ru.dr.meterreadings.viewmodels.AppSettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -22,8 +29,14 @@ fun AppSettingsScreen(
     // Текущий выбранный режим темы (приходит из MainActivity)
     appThemeMode: AppThemeMode,
     // Коллбек для смены темы (идёт обратно в MainActivity)
-    onThemeChange: (AppThemeMode) -> Unit
+    onThemeChange: (AppThemeMode) -> Unit,
+    // ViewModel для глобальных настроек (автоматически создаётся Hilt)
+    viewModel: AppSettingsViewModel = hiltViewModel()
 ) {
+    // Собираем состояние из ViewModel
+    val settings by viewModel.settings.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -55,6 +68,25 @@ fun AppSettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+
+            // 🔔 ГРУППА: УВЕДОМЛЕНИЯ
+            SettingsGroup(title = "🔔 Уведомления") {
+                // Если настройки ещё загружаются, показываем индикатор
+                if (settings == null) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp)
+                    )
+                } else {
+                    // Глобальный переключатель уведомлений
+                    GlobalNotificationSwitch(
+                        enabled = settings!!.globalNotificationsEnabled,
+                        isLoading = isLoading,
+                        onCheckedChange = { enabled ->
+                            viewModel.updateGlobalNotifications(enabled)
+                        }
+                    )
+                }
+            }
         }
     }
 }
@@ -68,20 +100,51 @@ fun SettingsGroup(
     title: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    // Локальное состояние: развернута ли группа
+    // По умолчанию false = группы свернуты при открытии экрана
+    var isExpanded by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(vertical = 8.dp)
-        )
+
+        // Заголовок группы с иконкой стрелки
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    isExpanded = !isExpanded  // Меняем состояние при клике
+                }
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Название группы
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            // Иконка стрелки: поворачивается в зависимости от состояния
+            Icon(
+                imageVector = if (isExpanded) {
+                    Icons.Default.KeyboardArrowDown  // ↓ вниз когда развернута
+                } else {
+                    Icons.Default.KeyboardArrowRight  // → вправо когда свернута
+                },
+                contentDescription = if (isExpanded) "Свернуть" else "Развернуть",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant
             )
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                content()
+            AnimatedVisibility(visible = isExpanded) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    content()
+                }
             }
         }
     }
@@ -160,6 +223,65 @@ private fun ThemeOptionRow(
         RadioButton(
             selected = selected,
             onClick = onClick
+        )
+    }
+}
+
+/**
+ * Глобальный переключатель всех уведомлений приложения.
+ *
+ * Мастер-флаг: если выключен, то все уведомления отключены,
+ * независимо от настроек отдельных провайдеров.
+ */
+@Composable
+private fun GlobalNotificationSwitch(
+    enabled: Boolean,
+    isLoading: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        // Иконка и текст слева
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Notifications,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column {
+                Text(
+                    text = "Все уведомления",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = if (enabled) {
+                        "Уведомления включены для всего приложения"
+                    } else {
+                        "Уведомления отключены полностью"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Switch справа
+        Switch(
+            checked = enabled,
+            onCheckedChange = onCheckedChange,
+            enabled = !isLoading  // Отключаем во время сохранения
         )
     }
 }

@@ -5,10 +5,12 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import ru.dr.meterreadings.data.local.dao.AccountDao
+import ru.dr.meterreadings.data.local.dao.AppSettingsDao
 import ru.dr.meterreadings.data.local.dao.MeterDao
 import ru.dr.meterreadings.data.local.dao.ProfileDao
 import ru.dr.meterreadings.data.local.dao.ProviderDao
 import ru.dr.meterreadings.data.local.entities.AccountEntity
+import ru.dr.meterreadings.data.local.entities.AppSettingsEntity
 import ru.dr.meterreadings.data.local.entities.MeterEntity
 import ru.dr.meterreadings.data.local.entities.ProfileEntity
 import ru.dr.meterreadings.data.local.entities.ProviderEntity
@@ -30,6 +32,7 @@ import ru.dr.meterreadings.data.local.entities.ProviderEntity
         AccountEntity::class,
         ProviderEntity::class,
         MeterEntity::class,
+        AppSettingsEntity::class,
     ],
     version = 1,  // Версия БД (при изменении схемы увеличивать)
     exportSchema = false  // Не экспортировать схему БД (для простоты)
@@ -58,6 +61,11 @@ abstract class AppDatabase : RoomDatabase() {
      * Получить DAO для работы со счётчиками
      */
     abstract fun meterDao(): MeterDao
+
+    /**
+     * Получить DAO для работы с глобальными настройками приложения
+     */
+    abstract fun appSettingsDao(): AppSettingsDao
 
     companion object {
         /**

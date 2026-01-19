@@ -8,6 +8,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import ru.dr.meterreadings.data.local.AppDatabase
 import ru.dr.meterreadings.data.local.dao.AccountDao
+import ru.dr.meterreadings.data.local.dao.AppSettingsDao
 import ru.dr.meterreadings.data.local.dao.MeterDao
 import ru.dr.meterreadings.data.local.dao.ProfileDao
 import ru.dr.meterreadings.data.local.dao.ProviderDao
@@ -73,4 +74,17 @@ object DatabaseModule {
     fun provideMeterDao(database: AppDatabase): MeterDao {
         return database.meterDao()
     }
+
+    /**
+     * Предоставить AppSettingsDao из базы данных.
+     *
+     * Hilt автоматически создаст и внедрит этот DAO
+     * в AppSettingsRepository через конструктор.
+     */
+    @Provides
+    @Singleton
+    fun provideAppSettingsDao(database: AppDatabase): AppSettingsDao {
+        return database.appSettingsDao()
+    }
+
 }
