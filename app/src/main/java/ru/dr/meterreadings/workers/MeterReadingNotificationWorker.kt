@@ -10,6 +10,7 @@ import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
 import ru.dr.meterreadings.data.local.dao.MeterDao
 import ru.dr.meterreadings.data.repository.AccountRepository
+import ru.dr.meterreadings.data.repository.AppSettingsRepository
 import ru.dr.meterreadings.data.repository.ProfileRepository
 import ru.dr.meterreadings.notifications.NotificationHelper
 import java.text.SimpleDateFormat
@@ -35,7 +36,8 @@ class MeterReadingNotificationWorker @AssistedInject constructor(
     private val profileRepository: ProfileRepository,
     private val accountRepository: AccountRepository,
     private val meterDao: MeterDao,
-    private val notificationHelper: NotificationHelper
+    private val notificationHelper: NotificationHelper,
+    private val appSettingsRepository: AppSettingsRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
@@ -54,9 +56,30 @@ class MeterReadingNotificationWorker @AssistedInject constructor(
             println("🔍 [NotificationWorker] Провайдеров в периоде: ${providersInPeriod.size}")
 
             for (provider in providersInPeriod) {
-                // Пропускаем, если напоминания отключены
+                // ✅ проверяем три уровня настроек
+
+                // 1. Глобальные уведомления (мастер-флаг)
+                val globalSettings = appSettingsRepository.getSettings().first()
+                if (!globalSettings.globalNotificationsEnabled) {
+                    println("⏭️ [NotificationWorker] Глобальные уведомления отключены")
+                    break  // Выходим из цикла — уведомления отключены для всего приложения
+                }
+
+                // 2. Уведомления провайдеров (общий флаг)
+                if (!globalSettings.providerNotificationsEnabled) {
+                    println("⏭️ [NotificationWorker] Уведомления провайдеров отключены")
+                    break
+                }
+
+                // 3. Напоминания для конкретного провайдера
                 if (!provider.reminderEnabled) {
                     println("⏭️ [NotificationWorker] Провайдер ${provider.name}: напоминания отключены")
+                    continue  // Пропускаем этого провайдера
+                }
+
+                // 4. Уведомления для конкретного провайдера
+                if (!provider.notificationsEnabled) {
+                    println("⏭️ [NotificationWorker] Провайдер ${provider.name}: уведомления отключены")
                     continue
                 }
 
@@ -96,12 +119,17 @@ class MeterReadingNotificationWorker @AssistedInject constructor(
 
                     // Если есть непереданные - показываем уведомление
                     if (unsubmittedCount > 0) {
-                        notificationHelper.showReadingReminderNotification(
-                            providerName = provider.name,
-                            meterCount = unsubmittedCount,
-                            endDay = provider.transmissionPeriodEndDay ?: 0
-                        )
-                        println("✅ [NotificationWorker] Уведомление показано: ${provider.name}, счётчиков: $unsubmittedCount")
+                        // ✅ Финальная проверка перед показом уведомления
+                        if (provider.notificationsEnabled) {
+                            notificationHelper.showReadingReminderNotification(
+                                providerName = provider.name,
+                                meterCount = unsubmittedCount,
+                                endDay = provider.transmissionPeriodEndDay ?: 0
+                            )
+                            println("✅ [NotificationWorker] Уведомление показано: ${provider.name}, счётчиков: $unsubmittedCount")
+                        } else {
+                            println("⏭️ [NotificationWorker] Уведомления отключены для ${provider.name}, пропускаем")
+                        }
                     } else {
                         println("✅ [NotificationWorker] Все показания переданы для ${provider.name}")
                     }
