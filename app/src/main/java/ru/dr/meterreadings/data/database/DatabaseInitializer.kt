@@ -51,8 +51,7 @@ class DatabaseInitializer @Inject constructor(
                     // ============================================
                     // УВЕДОМЛЕНИЯ
                     // ============================================
-                    updateNotificationsEnabled = true,
-                    errorNotificationsEnabled = true,   // ✨ НОВОЕ
+                    notificationsEnabled = true,
 
                     // ============================================
                     // НАПОМИНАНИЯ

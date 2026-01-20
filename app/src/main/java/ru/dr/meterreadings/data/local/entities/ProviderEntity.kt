@@ -44,13 +44,12 @@ data class ProviderEntity(
     // ============================================
     // НАСТРОЙКИ УВЕДОМЛЕНИЙ
     // ============================================
-    val updateNotificationsEnabled: Boolean = true,
-    val errorNotificationsEnabled: Boolean = true, // ✨ НОВОЕ
+    val notificationsEnabled: Boolean = false,
 
     // ============================================
     // НАСТРОЙКИ НАПОМИНАНИЙ
     // ============================================
-    val reminderEnabled: Boolean = true,
+    val reminderEnabled: Boolean = false,
     val reminderTimeHour: Int = 9,
     val reminderTimeMinute: Int = 0,
     val reminderPeriodMode: String = "AUTO",       // ✨ НОВОЕ
@@ -93,8 +92,7 @@ fun ProviderEntity.toDomain(): ProviderDomainModel {
         lastAutoUpdate = lastAutoUpdate,                   // ✨ НОВОЕ
 
         // Уведомления
-        updateNotificationsEnabled = updateNotificationsEnabled,
-        errorNotificationsEnabled = errorNotificationsEnabled,  // ✨ НОВОЕ
+        notificationsEnabled = notificationsEnabled,
 
         // Напоминания
         reminderEnabled = reminderEnabled,
@@ -134,8 +132,7 @@ fun ProviderDomainModel.toEntity(
         lastAutoUpdate = lastAutoUpdate,                   // ✨ НОВОЕ
 
         // Уведомления
-        updateNotificationsEnabled = updateNotificationsEnabled,
-        errorNotificationsEnabled = errorNotificationsEnabled,  // ✨ НОВОЕ
+        notificationsEnabled = notificationsEnabled,
 
         // Напоминания
         reminderEnabled = reminderEnabled,

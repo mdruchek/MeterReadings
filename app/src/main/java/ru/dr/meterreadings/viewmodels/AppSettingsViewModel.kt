@@ -7,9 +7,13 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import ru.dr.meterreadings.models.domain.AppSettingsDomainModel
 import ru.dr.meterreadings.data.repository.AppSettingsRepository
+import ru.dr.meterreadings.data.repository.ProviderRepository
+import ru.dr.meterreadings.models.domain.AppSettingsDomainModel
+import ru.dr.meterreadings.models.ui.ProviderUiModel
+import ru.dr.meterreadings.models.ui.toUiModel
 import javax.inject.Inject
 
 /**
@@ -20,12 +24,13 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class AppSettingsViewModel @Inject constructor(
-    private val repository: AppSettingsRepository
+    private val appSettingsRepository: AppSettingsRepository,
+    private val providerRepository: ProviderRepository
 ) : ViewModel() {
 
-    // ========================================
-    // СОСТОЯНИЕ UI
-    // ========================================
+    // ============================================
+    // STATE (UI наблюдает за этими StateFlow)
+    // ============================================
 
     /**
      * Текущие настройки приложения.
@@ -45,6 +50,10 @@ class AppSettingsViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    // Список провайдеров (UI модели)
+    private val _providers = MutableStateFlow<List<ProviderUiModel>>(emptyList())
+    val providers: StateFlow<List<ProviderUiModel>> = _providers.asStateFlow()
+
     /**
      * Сообщение об ошибке (если есть).
      *
@@ -53,109 +62,84 @@ class AppSettingsViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    // ========================================
-    // ИНИЦИАЛИЗАЦИЯ
-    // ========================================
+    // ============================================
+    // INITIALIZATION
+    // ============================================
 
     init {
-        // При создании ViewModel загружаем настройки из БД
-        loadSettings()
-    }
-
-    /**
-     * Загрузить настройки из Repository.
-     *
-     * Подписывается на Flow из Repository, чтобы получать
-     * автоматические обновления при изменениях в БД.
-     */
-    private fun loadSettings() {
+        // Загружаем глобальные настройки
         viewModelScope.launch {
-            try {
-                // Подписываемся на Flow настроек
-                repository.getSettings().collect { settings ->
+            appSettingsRepository.getSettings()
+                .collect { settings ->
                     _settings.value = settings
-                    println("✅ [AppSettingsViewModel] Настройки загружены: globalNotifications = ${settings.globalNotificationsEnabled}")
+                    println("✅ [ViewModel] Настройки загружены: $settings")
                 }
-            } catch (e: Exception) {
-                _error.value = "Ошибка загрузки настроек: ${e.message}"
-                println("❌ [AppSettingsViewModel] Ошибка загрузки: ${e.message}")
-                e.printStackTrace()
-            }
+        }
+
+        // Загружаем провайдеров и конвертируем в UI модели
+        viewModelScope.launch {
+            providerRepository.getAllProviders()
+                .map { domainList ->
+                    domainList.map { it.toUiModel() } // Domain → UiModel
+                }
+                .collect { uiList ->
+                    _providers.value = uiList
+                    println("✅ [ViewModel] Провайдеры загружены: ${uiList.size} шт.")
+                }
         }
     }
 
-    // ========================================
-    // ДЕЙСТВИЯ (ACTIONS)
-    // ========================================
+    // ============================================
+    // ACTIONS (UI вызывает эти методы)
+    // ============================================
 
-    /**
-     * Обновить флаг глобальных уведомлений.
-     *
-     * Вызывается из UI при переключении Switch.
-     * Показывает индикатор загрузки во время сохранения.
-     *
-     * @param enabled true = включить уведомления, false = выключить
-     */
+    /** Обновить глобальные уведомления (мастер-флаг). */
     fun updateGlobalNotifications(enabled: Boolean) {
         viewModelScope.launch {
+            _isLoading.value = true
             try {
-                _isLoading.value = true
-
-                // Сохраняем в БД через Repository
-                repository.updateGlobalNotifications(enabled)
-
-                // Repository автоматически обновит Flow,
-                // и настройки обновятся в _settings через collect
-
-                println("✅ [AppSettingsViewModel] Глобальные уведомления обновлены: $enabled")
-
+                appSettingsRepository.updateGlobalNotifications(enabled)
+                println("✅ [ViewModel] Глобальные уведомления: $enabled")
             } catch (e: Exception) {
-                _error.value = "Ошибка сохранения: ${e.message}"
-                println("❌ [AppSettingsViewModel] Ошибка сохранения: ${e.message}")
-                e.printStackTrace()
+                println("❌ [ViewModel] Ошибка обновления глобальных уведомлений: ${e.message}")
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
-    /**
-     * Обновить флаг уведомлений провайдеров.
-     *
-     * Вызывается из UI при переключении Switch.
-     *
-     * @param enabled true = включить уведомления провайдеров, false = выключить
-     */
-    fun updateProviderNotifications(enabled: Boolean) {
+    /** Обновить уведомления провайдеров (общий флаг). */
+    fun updateProviderNotificationsGlobal(enabled: Boolean) {
         viewModelScope.launch {
+            _isLoading.value = true
             try {
-                _isLoading.value = true
-
-                // Сохраняем в БД через Repository
-                repository.updateProviderNotifications(enabled)
-
-                println("✅ [AppSettingsViewModel] Уведомления провайдеров обновлены: $enabled")
-
+                appSettingsRepository.updateProviderNotifications(enabled)
+                println("✅ [ViewModel] Уведомления провайдеров: $enabled")
             } catch (e: Exception) {
-                _error.value = "Ошибка сохранения: ${e.message}"
-                println("❌ [AppSettingsViewModel] Ошибка сохранения: ${e.message}")
-                e.printStackTrace()
+                println("❌ [ViewModel] Ошибка обновления уведомлений провайдеров: ${e.message}")
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
-    // ========================================
-    // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    // ========================================
-
     /**
-     * Очистить сообщение об ошибке.
+     * Обновить уведомления конкретного провайдера.
      *
-     * Вызывается после показа ошибки пользователю (например, в Snackbar).
+     * @param providerId ID провайдера
+     * @param enabled Включены ли уведомления
      */
-    fun clearError() {
-        _error.value = null
+    fun updateProviderNotifications(providerId: String, enabled: Boolean) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                providerRepository.updateProviderNotifications(providerId, enabled)
+                println("✅ [ViewModel] Уведомления провайдера $providerId: $enabled")
+            } catch (e: Exception) {
+                println("❌ [ViewModel] Ошибка обновления уведомлений провайдера: ${e.message}")
+            } finally {
+                _isLoading.value = false
+            }
+        }
     }
 }

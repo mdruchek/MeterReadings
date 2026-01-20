@@ -4,41 +4,40 @@ data class ProviderDomainModel(
     val id: String,
     val name: String,
     val type: Type,
-    val logoUrl: String? = null,   // URL
+    val logoUrl: String?,   // URL
     val baseUrl: String,
     val authType: AuthType,
 
     // ============================================
     // ПЕРИОД ПЕРЕДАЧИ ПОКАЗАНИЙ
     // ============================================
-    val transmissionPeriodStartDay: Int? = null,
-    val transmissionPeriodEndDay: Int? = null,
-    val lastPeriodUpdate: Long? = null,
-    val periodLoadedForMonth: String? = null,
+    val transmissionPeriodStartDay: Int?,
+    val transmissionPeriodEndDay: Int?,
+    val lastPeriodUpdate: Long?,
+    val periodLoadedForMonth: String?,
 
     // ============================================
     // НАСТРОЙКИ АВТООБНОВЛЕНИЯ
     // ============================================
-    val autoUpdateEnabled: Boolean = false,
-    val updateStartDay: Int = 1,
-    val updateIntervalHours: Int = 1,
-    val lastAutoUpdate: Long? = null,              // ✨ НОВОЕ
+    val autoUpdateEnabled: Boolean,
+    val updateStartDay: Int,
+    val updateIntervalHours: Int,
+    val lastAutoUpdate: Long?,              // ✨ НОВОЕ
 
     // ============================================
     // НАСТРОЙКИ УВЕДОМЛЕНИЙ
     // ============================================
-    val updateNotificationsEnabled: Boolean = true,
-    val errorNotificationsEnabled: Boolean = true, // ✨ НОВОЕ
+    val notificationsEnabled: Boolean,
 
     // ============================================
     // НАСТРОЙКИ НАПОМИНАНИЙ
     // ============================================
-    val reminderEnabled: Boolean = true,
-    val reminderTimeHour: Int = 9,
-    val reminderTimeMinute: Int = 0,
-    val reminderPeriodMode: String = "AUTO",       // ✨ НОВОЕ: "AUTO" или "MANUAL"
-    val reminderCustomStartDay: Int? = null,       // ✨ НОВОЕ
-    val reminderCustomEndDay: Int? = null          // ✨ НОВОЕ
+    val reminderEnabled: Boolean,
+    val reminderTimeHour: Int,
+    val reminderTimeMinute: Int,
+    val reminderPeriodMode: String,       // ✨ НОВОЕ: "AUTO" или "MANUAL"
+    val reminderCustomStartDay: Int?,       // ✨ НОВОЕ
+    val reminderCustomEndDay: Int?        // ✨ НОВОЕ
 )
 
 enum class AuthType {

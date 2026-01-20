@@ -93,10 +93,13 @@ dependencies {
     // Kotlinx Serialization
     implementation(libs.kotlinx.serialization.json)
 
-    // ✅ НОВОЕ: WorkManager
+    // ✅ WorkManager
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.work.compiler)
+
+    // Coil (загрузка изображений)
+    implementation(libs.coil.compose)
 
     // Testing
     testImplementation(libs.junit)

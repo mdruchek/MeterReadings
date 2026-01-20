@@ -1,6 +1,8 @@
 // app/src/main/java/ru/dr/meterreadings/screens/AppSettingsScreen.kt
 package ru.dr.meterreadings.screens
 
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,14 +16,20 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.ContentScale
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import ru.dr.meterreadings.models.ui.AppThemeMode
 import ru.dr.meterreadings.viewmodels.AppSettingsViewModel
+import ru.dr.meterreadings.models.ui.ProviderUiModel
+import ru.dr.meterreadings.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,6 +45,7 @@ fun AppSettingsScreen(
     // Собираем состояние из ViewModel
     val settings by viewModel.settings.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val providers by viewModel.providers.collectAsState()
 
     Scaffold(
         topBar = {
@@ -100,9 +109,27 @@ fun AppSettingsScreen(
                             enabled = settings!!.providerNotificationsEnabled,
                             isLoading = isLoading,
                             onCheckedChange = { enabled ->
-                                viewModel.updateProviderNotifications(enabled)
+                                viewModel.updateProviderNotificationsGlobal(enabled)
                             }
                         )
+
+                        // Показываем список провайдеров только если их уведомления включены
+                        if (settings!!.providerNotificationsEnabled) {
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            HorizontalDivider()
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // Список провайдеров с индивидуальными настройками
+                            ProvidersNotificationsList(
+                                providers = providers,  // List<ProviderUiModel>
+                                isLoading = isLoading,
+                                onProviderNotificationChange = { providerId, enabled ->  // ← ОБНОВЛЕНО
+                                    viewModel.updateProviderNotifications(providerId, enabled)
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -355,6 +382,96 @@ private fun ProviderNotificationSwitch(
             checked = enabled,
             onCheckedChange = onCheckedChange,
             enabled = !isLoading
+        )
+    }
+}
+
+/**
+ * Список провайдеров с переключателями уведомлений.
+ *
+ * Каждый провайдер в одну строку: логотип, название, переключатель.
+ */
+@Composable
+private fun ProvidersNotificationsList(
+    providers: List<ProviderUiModel>,  // ← UI модель
+    isLoading: Boolean,
+    onProviderNotificationChange: (String, Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Уведомления для каждого поставщика",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        if (providers.isEmpty()) {
+            Text(
+                text = "Поставщики не добавлены",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        } else {
+            providers.forEach { providerUi ->
+                ProviderNotificationRow(
+                    providerUi = providerUi,
+                    isLoading = isLoading,
+                    onNotificationChange = onProviderNotificationChange
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Строка с одним провайдером: логотип | название | переключатель
+ */
+@Composable
+private fun ProviderNotificationRow(
+    providerUi: ProviderUiModel,  // ← UI модель
+    isLoading: Boolean,
+    onNotificationChange: (String, Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Логотип провайдера (кешируется через Coil)
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(providerUi.provider.logoUrl)  // ← Доступ через .provider
+                .crossfade(true)
+                .placeholder(R.drawable.ic_provider_placeholder)
+                .error(R.drawable.ic_provider_placeholder)
+                .build(),
+            contentDescription = "Логотип ${providerUi.provider.name}",
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(6.dp)),
+            contentScale = ContentScale.Fit
+        )
+
+        // Название провайдера
+        Text(
+            text = providerUi.provider.name,  // ← Доступ через .provider
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
+        )
+
+        // Переключатель
+        Switch(
+            checked = providerUi.provider.notificationsEnabled,  // ← Доступ через .provider
+            onCheckedChange = { enabled ->
+                onNotificationChange(providerUi.provider.id, enabled)  // ← Доступ через .provider
+            },
+            enabled = !isLoading && !providerUi.isLoading,  // ← UI состояние
+            modifier = Modifier.scale(0.85f)
         )
     }
 }

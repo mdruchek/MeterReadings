@@ -115,16 +115,16 @@ class PeriodUpdateWorker @AssistedInject constructor(
                             println("✅ [PeriodUpdateWorker] Период обновлён для ${provider.name}: ${period.startDay}-${period.endDay}")
 
                             // Показываем уведомление
-                            if (provider.updateNotificationsEnabled) {
-                                val newProvider = profileRepository.getProviderById(provider.id).first()
-                                if (newProvider != null) {
-                                    notificationHelper.showPeriodUpdatedNotification(
-                                        providerName = provider.name,
-                                        startDay = newProvider.transmissionPeriodStartDay ?: 0,
-                                        endDay = newProvider.transmissionPeriodEndDay ?: 0
-                                    )
-                                }
-                            }
+//                            if (provider.updateNotificationsEnabled) {
+//                                val newProvider = profileRepository.getProviderById(provider.id).first()
+//                                if (newProvider != null) {
+//                                    notificationHelper.showPeriodUpdatedNotification(
+//                                        providerName = provider.name,
+//                                        startDay = newProvider.transmissionPeriodStartDay ?: 0,
+//                                        endDay = newProvider.transmissionPeriodEndDay ?: 0
+//                                    )
+//                                }
+//                            }
                         } else {
                             println("❌ [PeriodUpdateWorker] Ошибка: ${periodResult.exceptionOrNull()?.message}")
                         }

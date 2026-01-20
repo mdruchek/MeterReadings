@@ -112,6 +112,43 @@ class ProviderRepository @Inject constructor(
         println("✅ [ProviderRepository] Провайдер удалён: $id")  // ✅ ДОБАВЛЕНО
     }
 
+    /**
+     * Обновить настройки уведомлений для конкретного провайдера.
+     *
+     * Позволяет обновить один или оба флага уведомлений.
+     * Если параметр null — поле не изменяется.
+     *
+     * @param providerId ID провайдера
+     * @param natificationsEnabled Уведомления провайдера (null = не менять)
+     */
+    suspend fun updateProviderNotifications(
+        providerId: String,
+        updateNotificationsEnabled: Boolean?
+    ) {
+        try {
+            // Получаем текущего провайдера из БД
+            val provider = providerDao.getById(providerId).first()
+                ?: throw IllegalArgumentException("Provider not found: $providerId")
+
+            // Создаём обновлённый объект, меняя только переданные поля
+            val updatedProvider = provider.copy(
+                notificationsEnabled = updateNotificationsEnabled ?: provider.notificationsEnabled,
+                updatedAt = System.currentTimeMillis()
+            )
+
+            // Сохраняем в БД
+            providerDao.update(updatedProvider)
+
+            println("✅ [ProviderRepository] Уведомления провайдера обновлены: $providerId")
+            println("   updateNotifications: ${updatedProvider.notificationsEnabled}")
+
+        } catch (e: Exception) {
+            println("❌ [ProviderRepository] Ошибка обновления уведомлений: ${e.message}")
+            e.printStackTrace()
+            throw e
+        }
+    }
+
     // ========================================
     // СПЕЦИАЛЬНЫЕ ОПЕРАЦИИ
     // ========================================
