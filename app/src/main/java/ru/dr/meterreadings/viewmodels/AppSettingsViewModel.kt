@@ -1,4 +1,3 @@
-// app/src/main/java/ru/dr/meterreadings/viewmodels/AppSettingsViewModel.kt
 package ru.dr.meterreadings.viewmodels
 
 import androidx.lifecycle.ViewModel
@@ -16,12 +15,6 @@ import ru.dr.meterreadings.models.ui.ProviderUiModel
 import ru.dr.meterreadings.models.ui.toUiModel
 import javax.inject.Inject
 
-/**
- * ViewModel для экрана глобальных настроек приложения.
- *
- * Управляет состоянием UI и взаимодействует с Repository.
- * Hilt автоматически создаёт и внедряет зависимости.
- */
 @HiltViewModel
 class AppSettingsViewModel @Inject constructor(
     private val appSettingsRepository: AppSettingsRepository,
@@ -97,26 +90,32 @@ class AppSettingsViewModel @Inject constructor(
     fun updateGlobalNotifications(enabled: Boolean) {
         viewModelScope.launch {
             _isLoading.value = true
+            _error.value = null  // Сбрасываем старую ошибку
             try {
                 appSettingsRepository.updateGlobalNotifications(enabled)
                 println("✅ [ViewModel] Глобальные уведомления: $enabled")
             } catch (e: Exception) {
-                println("❌ [ViewModel] Ошибка обновления глобальных уведомлений: ${e.message}")
+                val errorMsg = "Ошибка обновления глобальных уведомлений: ${e.message}"
+                _error.value = errorMsg
+                println("❌ [ViewModel] $errorMsg")
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
-    /** Обновить уведомления провайдеров (общий флаг). */
+    /** Обновить глобальный флаг уведомлений провайдеров. */
     fun updateProviderNotificationsGlobal(enabled: Boolean) {
         viewModelScope.launch {
             _isLoading.value = true
+            _error.value = null
             try {
                 appSettingsRepository.updateProviderNotifications(enabled)
-                println("✅ [ViewModel] Уведомления провайдеров: $enabled")
+                println("✅ [ViewModel] Уведомления провайдеров (глобально): $enabled")
             } catch (e: Exception) {
-                println("❌ [ViewModel] Ошибка обновления уведомлений провайдеров: ${e.message}")
+                val errorMsg = "Ошибка обновления уведомлений провайдеров: ${e.message}"
+                _error.value = errorMsg
+                println("❌ [ViewModel] $errorMsg")
             } finally {
                 _isLoading.value = false
             }
@@ -125,21 +124,29 @@ class AppSettingsViewModel @Inject constructor(
 
     /**
      * Обновить уведомления конкретного провайдера.
-     *
-     * @param providerId ID провайдера
-     * @param enabled Включены ли уведомления
+     * Один флаг управляет и уведомлениями об успехе, и уведомлениями об ошибках.
      */
     fun updateProviderNotifications(providerId: String, enabled: Boolean) {
         viewModelScope.launch {
             _isLoading.value = true
+            _error.value = null
             try {
                 providerRepository.updateProviderNotifications(providerId, enabled)
                 println("✅ [ViewModel] Уведомления провайдера $providerId: $enabled")
             } catch (e: Exception) {
-                println("❌ [ViewModel] Ошибка обновления уведомлений провайдера: ${e.message}")
+                val errorMsg = "Ошибка обновления уведомлений провайдера: ${e.message}"
+                _error.value = errorMsg
+                println("❌ [ViewModel] $errorMsg")
             } finally {
                 _isLoading.value = false
             }
         }
+    }
+
+    /**
+     * Очистить ошибку (вызывается после показа Snackbar).
+     */
+    fun clearError() {
+        _error.value = null
     }
 }

@@ -46,6 +46,20 @@ fun AppSettingsScreen(
     val settings by viewModel.settings.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val providers by viewModel.providers.collectAsState()
+    val error by viewModel.error.collectAsState()
+
+    // SnackBar для ошибок
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(error) {
+        error?.let {
+            snackbarHostState.showSnackbar(
+                message = it,
+                duration = SnackbarDuration.Short
+            )
+            viewModel.clearError()  // Сбрасываем после показа
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -60,7 +74,8 @@ fun AppSettingsScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Column(
             modifier = Modifier
