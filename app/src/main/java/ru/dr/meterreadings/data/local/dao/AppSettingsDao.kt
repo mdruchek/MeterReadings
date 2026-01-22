@@ -70,7 +70,7 @@ interface AppSettingsDao {
      * @param enabled Новое значение флага
      */
     @Query("UPDATE app_settings SET globalNotificationsEnabled = :enabled, updatedAt = :updatedAt WHERE id = 1")
-    suspend fun updateGlobalNotifications(enabled: Boolean, updatedAt: Long = System.currentTimeMillis())
+    suspend fun updateGlobalNotifications(enabled: Boolean, updatedAt: Long)
 
     /**
      * Обновить только флаг глобальных уведомлений провайдеров.
@@ -81,5 +81,21 @@ interface AppSettingsDao {
      * @param enabled Новое значение флага
      */
     @Query("UPDATE app_settings SET providerNotificationsEnabled = :enabled, updatedAt = :updatedAt WHERE id = 1")
-    suspend fun updateProviderNotifications(enabled: Boolean, updatedAt: Long = System.currentTimeMillis())
+    suspend fun updateProviderNotifications(enabled: Boolean, updatedAt: Long)
+
+    // Изменить время напоминания
+    @Query("UPDATE app_settings SET reminderTimeHour = :hour, reminderTimeMinute = :minute, updatedAt = :updatedAt WHERE id = 1")
+    suspend fun updateReminderTime(hour: Int, minute: Int, updatedAt: Long)
+
+    // Включить/выключить глобальные напоминания
+    @Query("UPDATE app_settings SET globalRemindersEnabled = :enabled, updatedAt = :updatedAt WHERE id = 1")
+    suspend fun updateGlobalReminders(enabled: Boolean, updatedAt: Long)
+
+    // Изменить режим периода напоминаний (AUTO/MANUAL)
+    @Query("UPDATE app_settings SET reminderPeriodMode = :mode, updatedAt = :updatedAt WHERE id = 1")
+    suspend fun updateReminderPeriodMode(mode: String, updatedAt: Long)
+
+    // Изменить количество дней до начала периода
+    @Query("UPDATE app_settings SET reminderDaysBeforeStart = :days, updatedAt = :updatedAt WHERE id = 1")
+    suspend fun updateReminderDaysBeforeStart(days: Int, updatedAt: Long)
 }

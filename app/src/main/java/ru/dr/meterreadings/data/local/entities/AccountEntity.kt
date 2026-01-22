@@ -37,7 +37,7 @@ data class AccountEntity(
     // Внешний ключ на Profile
     val profileId: String,
     // ID компании (Provider)
-    val providerId: String,
+    val providerId: Long,
     // Номер лицевого счета
     val accountNumber: String,
     // Логин для входа в личный кабинет (может быть null)

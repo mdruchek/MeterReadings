@@ -183,7 +183,7 @@ class ProfileViewModel @Inject constructor(
      */
     fun addAccount(
         profileId: String,
-        providerId: String,
+        providerId: Long,
         accountNumber: String
     ) {
         viewModelScope.launch {

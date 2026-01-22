@@ -126,7 +126,7 @@ class AppSettingsViewModel @Inject constructor(
      * Обновить уведомления конкретного провайдера.
      * Один флаг управляет и уведомлениями об успехе, и уведомлениями об ошибках.
      */
-    fun updateProviderNotifications(providerId: String, enabled: Boolean) {
+    fun updateProviderNotifications(providerId: Long, enabled: Boolean) {
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
@@ -142,6 +142,120 @@ class AppSettingsViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Обновить время напоминания.
+     *
+     * @param hour Час (0-23)
+     * @param minute Минута (0-59)
+     */
+    fun updateReminderTime(hour: Int, minute: Int) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            try {
+                appSettingsRepository.updateReminderTime(hour, minute)
+                println("✅ [ViewModel] Время напоминания: $hour:$minute")
+            } catch (e: Exception) {
+                val errorMsg = "Ошибка обновления времени напоминания: ${e.message}"
+                _error.value = errorMsg
+                println("❌ [ViewModel] $errorMsg")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Включить/выключить глобальные напоминания.
+     *
+     * @param enabled true = напоминания включены, false = выключены
+     */
+    fun updateGlobalReminders(enabled: Boolean) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            try {
+                appSettingsRepository.updateGlobalReminders(enabled)
+                println("✅ [ViewModel] Глобальные напоминания: $enabled")
+            } catch (e: Exception) {
+                val errorMsg = "Ошибка обновления глобальных напоминаний: ${e.message}"
+                _error.value = errorMsg
+                println("❌ [ViewModel] $errorMsg")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Изменить режим периода напоминаний.
+     *
+     * @param mode "AUTO" = автоматически по периоду провайдера, "MANUAL" = вручную
+     */
+    fun updateReminderPeriodMode(mode: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            try {
+                appSettingsRepository.updateReminderPeriodMode(mode)
+                println("✅ [ViewModel] Режим периода напоминаний: $mode")
+            } catch (e: Exception) {
+                val errorMsg = "Ошибка обновления режима периода: ${e.message}"
+                _error.value = errorMsg
+                println("❌ [ViewModel] $errorMsg")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Изменить количество дней до начала периода передачи показаний,
+     * за которое показывается напоминание.
+     *
+     * @param days Количество дней (обычно 1-7)
+     */
+    fun updateReminderDaysBeforeStart(days: Int) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            try {
+                appSettingsRepository.updateReminderDaysBeforeStart(days)
+                println("✅ [ViewModel] Дни до начала периода: $days")
+            } catch (e: Exception) {
+                val errorMsg = "Ошибка обновления дней до начала периода: ${e.message}"
+                _error.value = errorMsg
+                println("❌ [ViewModel] $errorMsg")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Обновить кастомный день напоминания для конкретного провайдера (режим MANUAL).
+     *
+     * @param providerId ID провайдера
+     * @param day День месяца (1-31)
+     */
+    fun updateProviderReminderDay(providerId: Long, day: Int) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            try {
+                providerRepository.updateProviderReminderDay(providerId, day)
+                println("✅ [ViewModel] День напоминания провайдера $providerId: $day")
+            } catch (e: Exception) {
+                val errorMsg = "Ошибка обновления дня напоминания: ${e.message}"
+                _error.value = errorMsg
+                println("❌ [ViewModel] $errorMsg")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
 
     /**
      * Очистить ошибку (вызывается после показа Snackbar).

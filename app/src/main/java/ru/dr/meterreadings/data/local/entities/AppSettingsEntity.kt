@@ -1,4 +1,3 @@
-// app/src/main/java/ru/dr/meterreadings/data/local/entities/AppSettingsEntity.kt
 package ru.dr.meterreadings.data.local.entities
 
 import androidx.room.Entity
@@ -8,66 +7,79 @@ import ru.dr.meterreadings.models.domain.AppSettingsDomainModel
 /**
  * Entity для глобальных настроек приложения.
  *
- * В БД будет всегда одна строка с id = 1 (Singleton pattern).
- * Все глобальные настройки хранятся здесь, а настройки конкретных
- * провайдеров остаются в ProviderEntity.
+ * Значения по умолчанию НЕ задаются здесь — они определены в AppSettingsDomainModel
+ * и попадают в БД через конвертацию .toEntity().
  */
 @Entity(tableName = "app_settings")
 data class AppSettingsEntity(
     @PrimaryKey
-    val id: Int = 1, // Всегда 1, т.к. настройки приложения единственные
+    val id: Long = 1L,
 
     // ============================================
-    // ГЛОБАЛЬНЫЕ НАСТРОЙКИ УВЕДОМЛЕНИЙ
+    // УВЕДОМЛЕНИЯ
     // ============================================
 
     /**
-     * Мастер-переключатель всех уведомлений приложения.
-     * Если false — никакие уведомления не показываются,
-     * независимо от настроек провайдеров.
+     * Глобальный мастер-флаг уведомлений.
      */
-    val globalNotificationsEnabled: Boolean = false,
+    val globalNotificationsEnabled: Boolean,
 
-    // Глобальный флаг для уведомлений провайдеров
-    val providerNotificationsEnabled: Boolean = false,
+    /**
+     * Глобальный флаг уведомлений провайдеров.
+     */
+    val providerNotificationsEnabled: Boolean,
 
     // ============================================
-    // ТЕХНИЧЕСКИЕ ПОЛЯ
+    // НАПОМИНАНИЯ
     // ============================================
-    val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+
+    /**
+     * Глобальный мастер-флаг напоминаний.
+     */
+    val globalRemindersEnabled: Boolean,
+
+    /**
+     * Время напоминания: час (0-23).
+     */
+    val reminderTimeHour: Int,
+
+    /**
+     * Время напоминания: минута (0-59).
+     */
+    val reminderTimeMinute: Int,
+
+    /**
+     * Режим периода напоминаний: "AUTO" или "MANUAL".
+     */
+    val reminderPeriodMode: String,
+
+    /**
+     * За сколько дней до начала периода передачи напоминать (режим AUTO).
+     */
+    val reminderDaysBeforeStart: Int,
+
+    // ============================================
+    // СЛУЖЕБНЫЕ ПОЛЯ
+    // ============================================
+
+    val createdAt: Long,
+    val updatedAt: Long
 )
 
-// ========================================
-// МАППИНГ: Entity ↔ Domain
-// ========================================
-
 /**
- * Конвертирует Entity (из БД) в DomainModel (для бизнес-логики).
+ * Конвертация Entity → Domain (для бизнес-логики).
  */
 fun AppSettingsEntity.toDomain(): AppSettingsDomainModel {
     return AppSettingsDomainModel(
-        globalNotificationsEnabled = globalNotificationsEnabled,
-        providerNotificationsEnabled = providerNotificationsEnabled
-    )
-}
-
-/**
- * Конвертирует DomainModel в Entity (для сохранения в БД).
- *
- * @param createdAt Метка создания (по умолчанию текущее время)
- * @param updatedAt Метка обновления (по умолчанию текущее время)
- */
-fun AppSettingsDomainModel.toEntity(
-    createdAt: Long = System.currentTimeMillis(),
-    updatedAt: Long = System.currentTimeMillis()
-): AppSettingsEntity {
-    return AppSettingsEntity(
-        id = 1, // Всегда 1 для Singleton
+        id = id,
         globalNotificationsEnabled = globalNotificationsEnabled,
         providerNotificationsEnabled = providerNotificationsEnabled,
+        globalRemindersEnabled = globalRemindersEnabled,
+        reminderTimeHour = reminderTimeHour,
+        reminderTimeMinute = reminderTimeMinute,
+        reminderPeriodMode = reminderPeriodMode,
+        reminderDaysBeforeStart = reminderDaysBeforeStart,
         createdAt = createdAt,
         updatedAt = updatedAt
     )
 }
-

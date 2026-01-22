@@ -9,7 +9,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
 import ru.dr.meterreadings.data.repository.AccountRepository
-import ru.dr.meterreadings.data.repository.ProfileRepository
+import ru.dr.meterreadings.data.repository.ProviderRepository
 import ru.dr.meterreadings.domain.connector.GetTransmissionPeriod
 import ru.dr.meterreadings.domain.connector.ProviderConnectorFactory
 import ru.dr.meterreadings.notifications.NotificationHelper
@@ -36,7 +36,7 @@ import java.util.concurrent.TimeUnit
 class PeriodUpdateWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val profileRepository: ProfileRepository,
+    private val providerRepository: ProviderRepository,
     private val accountRepository: AccountRepository,
     private val connectorFactory: ProviderConnectorFactory,
     private val notificationHelper: NotificationHelper
@@ -53,7 +53,7 @@ class PeriodUpdateWorker @AssistedInject constructor(
             println("📅 [PeriodUpdateWorker] Текущая дата: $today (день: $todayDay, месяц: $currentMonth)")
 
             // Получаем всех провайдеров
-            val providers = profileRepository.getAllProviders().first()
+            val providers = providerRepository.getAllProviders().first()
             println("🔍 [PeriodUpdateWorker] Провайдеров в БД: ${providers.size}")
 
             var updatedCount = 0
@@ -92,7 +92,7 @@ class PeriodUpdateWorker @AssistedInject constructor(
                     println("📋 [PeriodUpdateWorker] Используем аккаунт: ${account.accountNumber}")
 
                     // Получаем коннектор для провайдера
-                    val connector = connectorFactory.getConnector(provider.id.toString())
+                    val connector = connectorFactory.getConnector(provider.id)
 
                     // Проверяем, поддерживает ли провайдер получение периода
                     if (connector is GetTransmissionPeriod) {
@@ -105,7 +105,7 @@ class PeriodUpdateWorker @AssistedInject constructor(
                             val period = periodResult.getOrThrow()
 
                             // Сохраняем в БД
-                            profileRepository.updateProviderTransmissionPeriod(
+                            providerRepository.updateProviderTransmissionPeriod(
                                 providerId = provider.id,
                                 periodStartDay = period.startDay,
                                 periodEndDay = period.endDay

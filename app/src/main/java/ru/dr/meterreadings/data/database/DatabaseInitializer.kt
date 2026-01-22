@@ -25,7 +25,7 @@ class DatabaseInitializer @Inject constructor(
             // КВЦ Нижегородская область
             providerRepository.addProvider(
                 ProviderDomainModel(
-                    id = ProviderIds.KVC.toString(),
+                    id = ProviderIds.KVC,
                     name = "КВЦ",
                     type = Type.WaterSupply,
                     authType = AuthType.ACCOUNT_NUMBER,

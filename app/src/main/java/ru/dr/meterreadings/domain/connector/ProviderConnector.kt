@@ -64,6 +64,32 @@ interface GetTransmissionPeriod {
     )
 }
 
+/**
+ * Провайдер поддерживает загрузку счётчиков
+ */
+interface LoadMeters {
+    suspend fun loadMeters(
+        accountNumber: String,
+        regionId: String? = null
+    ): Result<LoadMetersResult>
+
+    data class LoadMetersResult(
+        val meters: List<MeterInfo>,
+        val address: String,
+        val cacheData: Any? = null  // Опционально для кеша (например, KvcLocationDto)
+    )
+
+    data class MeterInfo(
+        val id: String,
+        val type: String,
+        val serialNumber: String,
+        val lastValue: Int?,
+        val lastUpdateTimestamp: Long?,
+        val lastSubmissionDate: String?,
+        val apiCounterId: Int
+    )
+}
+
 // ============================================
 // Типы ресурсов
 // ============================================

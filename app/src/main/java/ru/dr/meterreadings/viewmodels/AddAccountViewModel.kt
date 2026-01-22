@@ -103,10 +103,10 @@ class AddAccountViewModel @Inject constructor(
     // STATE - выбранный провайдер
     // =====================================================
 
-    private val _selectedProviderId = MutableStateFlow<String?>(null)
-    val selectedProviderId: StateFlow<String?> = _selectedProviderId.asStateFlow()
+    private val _selectedProviderId = MutableStateFlow<Long?>(null)
+    val selectedProviderId: StateFlow<Long?> = _selectedProviderId.asStateFlow()
 
-    fun selectProvider(providerId: String) {
+    fun selectProvider(providerId: Long) {
         _selectedProviderId.value = providerId
         println("✅ [AddAccountVM] Выбран провайдер: $providerId")
     }
@@ -148,7 +148,7 @@ class AddAccountViewModel @Inject constructor(
      *
      * ✅ Вызывается из UI при переходе на шаг 2
      */
-    fun loadRegionsForProvider(providerId: String) {  // ← Убрали private
+    fun loadRegionsForProvider(providerId: Long) {  // ← Убрали private
         viewModelScope.launch {
             _isLoadingRegions.value = true
             _regions.value = emptyList()
@@ -227,7 +227,7 @@ class AddAccountViewModel @Inject constructor(
      * Поиск адреса по лицевому счёту
      */
     fun searchAccountAddress(
-        providerId: String,
+        providerId: Long,
         accountNumber: String,
         regionId: String?
     ) {

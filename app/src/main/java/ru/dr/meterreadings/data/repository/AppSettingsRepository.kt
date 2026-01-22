@@ -4,9 +4,8 @@ package ru.dr.meterreadings.data.repository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import ru.dr.meterreadings.data.local.dao.AppSettingsDao
-import ru.dr.meterreadings.data.local.entities.AppSettingsEntity
 import ru.dr.meterreadings.data.local.entities.toDomain
-import ru.dr.meterreadings.data.local.entities.toEntity
+import ru.dr.meterreadings.models.domain.toEntity
 import ru.dr.meterreadings.models.domain.AppSettingsDomainModel
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -78,13 +77,12 @@ class AppSettingsRepository @Inject constructor(
         val entity = appSettingsDao.getSettingsSync()
 
         if (entity == null) {
-            // Настроек нет — создаём с дефолтными значениями из Entity,
-            // но переопределяем только изменяемое поле
-            val defaultEntity = AppSettingsEntity()  // Берём все дефолты из Entity
-            val newEntity = defaultEntity.copy(
-                globalNotificationsEnabled = enabled  // Меняем только этот флаг
+            // Настроек нет — создаём с дефолтными значениями из Domain
+            val defaultDomain = AppSettingsDomainModel()
+            val newDomain = defaultDomain.copy(
+                globalNotificationsEnabled = enabled
             )
-            appSettingsDao.insert(newEntity)
+            appSettingsDao.insert(newDomain.toEntity())
             println("✅ [AppSettingsRepository] Настройки созданы: globalNotifications = $enabled")
         } else {
             appSettingsDao.updateGlobalNotifications(
@@ -106,11 +104,12 @@ class AppSettingsRepository @Inject constructor(
         val entity = appSettingsDao.getSettingsSync()
 
         if (entity == null) {
-            val defaultEntity = AppSettingsEntity()
-            val newEntity = defaultEntity.copy(
+            // Настроек нет — создаём с дефолтными значениями из Domain
+            val defaultDomain = AppSettingsDomainModel()
+            val newDomain = defaultDomain.copy(
                 providerNotificationsEnabled = enabled
             )
-            appSettingsDao.insert(newEntity)
+            appSettingsDao.insert(newDomain.toEntity())
             println("✅ [AppSettingsRepository] Настройки созданы: providerNotifications = $enabled")
         } else {
             appSettingsDao.updateProviderNotifications(
@@ -120,6 +119,107 @@ class AppSettingsRepository @Inject constructor(
             println("✅ [AppSettingsRepository] Уведомления провайдеров обновлены: $enabled")
         }
     }
+
+    /**
+     * Обновить время напоминания.
+     *
+     * @param hour Час (0-23)
+     * @param minute Минута (0-59)
+     */
+    suspend fun updateReminderTime(hour: Int, minute: Int) {
+        val entity = appSettingsDao.getSettingsSync()
+        if (entity == null) {
+            // Настроек нет — создаём с дефолтными значениями из Domain
+            val defaultDomain = AppSettingsDomainModel()
+            val newDomain = defaultDomain.copy(
+                reminderTimeHour = hour,
+                reminderTimeMinute = minute
+            )
+            appSettingsDao.insert(newDomain.toEntity())
+            println("✅ [AppSettingsRepository] Настройки созданы: reminderTime = $hour:$minute")
+        } else {
+            appSettingsDao.updateReminderTime(
+                hour = hour,
+                minute = minute,
+                updatedAt = System.currentTimeMillis()
+            )
+            println("✅ [AppSettingsRepository] Время напоминания обновлено: $hour:$minute")
+        }
+    }
+
+    /**
+     * Включить/выключить глобальные напоминания.
+     *
+     * @param enabled true = напоминания включены, false = выключены
+     */
+    suspend fun updateGlobalReminders(enabled: Boolean) {
+        val entity = appSettingsDao.getSettingsSync()
+        if (entity == null) {
+            // Настроек нет — создаём с дефолтными значениями из Domain
+            val defaultDomain = AppSettingsDomainModel()
+            val newDomain = defaultDomain.copy(
+                globalRemindersEnabled = enabled
+            )
+            appSettingsDao.insert(newDomain.toEntity())
+            println("✅ [AppSettingsRepository] Настройки созданы: globalReminders = $enabled")
+        } else {
+            appSettingsDao.updateGlobalReminders(
+                enabled = enabled,
+                updatedAt = System.currentTimeMillis()
+            )
+            println("✅ [AppSettingsRepository] Глобальные напоминания обновлены: $enabled")
+        }
+    }
+
+    /**
+     * Изменить режим периода напоминаний.
+     *
+     * @param mode "AUTO" = автоматически по периоду провайдера, "MANUAL" = вручную
+     */
+    suspend fun updateReminderPeriodMode(mode: String) {
+        val entity = appSettingsDao.getSettingsSync()
+        if (entity == null) {
+            // Настроек нет — создаём с дефолтными значениями из Domain
+            val defaultDomain = AppSettingsDomainModel()
+            val newDomain = defaultDomain.copy(
+                reminderPeriodMode = mode
+            )
+            appSettingsDao.insert(newDomain.toEntity())
+            println("✅ [AppSettingsRepository] Настройки созданы: reminderPeriodMode = $mode")
+        } else {
+            appSettingsDao.updateReminderPeriodMode(
+                mode = mode,
+                updatedAt = System.currentTimeMillis()
+            )
+            println("✅ [AppSettingsRepository] Режим периода напоминаний обновлён: $mode")
+        }
+    }
+
+    /**
+     * Изменить количество дней до начала периода передачи показаний,
+     * за которое показывается напоминание.
+     *
+     * @param days Количество дней (обычно 1-7)
+     */
+    suspend fun updateReminderDaysBeforeStart(days: Int) {
+        val entity = appSettingsDao.getSettingsSync()
+        if (entity == null) {
+            // Настроек нет — создаём с дефолтными значениями из Domain
+            val defaultDomain = AppSettingsDomainModel()
+            val newDomain = defaultDomain.copy(
+                reminderDaysBeforeStart = days
+            )
+            appSettingsDao.insert(newDomain.toEntity())
+            println("✅ [AppSettingsRepository] Настройки созданы: reminderDaysBeforeStart = $days")
+        } else {
+            appSettingsDao.updateReminderDaysBeforeStart(
+                days = days,
+                updatedAt = System.currentTimeMillis()
+            )
+            println("✅ [AppSettingsRepository] Дни до начала периода обновлены: $days")
+        }
+    }
+
 
     // ========================================
     // ИНИЦИАЛИЗАЦИЯ
@@ -134,10 +234,7 @@ class AppSettingsRepository @Inject constructor(
      * @return Настройки по умолчанию
      */
     private suspend fun createDefaultSettings(): AppSettingsDomainModel {
-        val defaultSettings = AppSettingsDomainModel(
-            globalNotificationsEnabled = false,
-            providerNotificationsEnabled = true
-        )
+        val defaultSettings = AppSettingsDomainModel()
         // Конвертируем Domain → Entity и сохраняем в БД
         appSettingsDao.insert(defaultSettings.toEntity())
         println("✅ [AppSettingsRepository] Настройки по умолчанию созданы")

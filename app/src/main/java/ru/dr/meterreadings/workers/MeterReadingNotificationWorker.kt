@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.first
 import ru.dr.meterreadings.data.local.dao.MeterDao
 import ru.dr.meterreadings.data.repository.AccountRepository
 import ru.dr.meterreadings.data.repository.AppSettingsRepository
-import ru.dr.meterreadings.data.repository.ProfileRepository
+import ru.dr.meterreadings.data.repository.ProviderRepository
 import ru.dr.meterreadings.notifications.NotificationHelper
 import java.text.SimpleDateFormat
 import java.util.*
@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit
 class MeterReadingNotificationWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val profileRepository: ProfileRepository,
+    private val providerRepository: ProviderRepository,
     private val accountRepository: AccountRepository,
     private val meterDao: MeterDao,
     private val notificationHelper: NotificationHelper,
@@ -52,7 +52,7 @@ class MeterReadingNotificationWorker @AssistedInject constructor(
             println("📅 [NotificationWorker] Текущая дата: $today")
 
             // Получаем провайдеров, у которых сейчас период передачи
-            val providersInPeriod = profileRepository.getProvidersInTransmissionPeriod()
+            val providersInPeriod = providerRepository.getProvidersInTransmissionPeriod()
             println("🔍 [NotificationWorker] Провайдеров в периоде: ${providersInPeriod.size}")
 
             for (provider in providersInPeriod) {

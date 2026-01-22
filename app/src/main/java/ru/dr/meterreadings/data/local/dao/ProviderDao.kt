@@ -13,7 +13,7 @@ interface ProviderDao {
     fun getAll(): Flow<List<ProviderEntity>>
 
     @Query("SELECT * FROM providers WHERE id = :id")
-    fun getById(id: String): Flow<ProviderEntity?>
+    fun getById(id: Long): Flow<ProviderEntity?>
 
     @Query("SELECT * FROM providers WHERE type = :type ORDER BY name ASC")
     fun getAllByType(type: String): Flow<List<ProviderEntity>>
@@ -22,7 +22,7 @@ interface ProviderDao {
     fun searchByName(query: String): Flow<List<ProviderEntity>>
 
     @Query("SELECT EXISTS(SELECT 1 FROM providers WHERE id = :id)")
-    suspend fun exists(id: String): Boolean  // ✅ ИСПРАВЛЕНО: String → Long
+    suspend fun exists(id: Long): Boolean  // ✅ ИСПРАВЛЕНО: String → Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(provider: ProviderEntity)

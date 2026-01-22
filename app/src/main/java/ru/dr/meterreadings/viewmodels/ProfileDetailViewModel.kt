@@ -1,5 +1,4 @@
 // app/src/main/java/ru/dr/meterreadings/viewmodels/ProfileDetailViewModel.kt
-
 package ru.dr.meterreadings.viewmodels
 
 import androidx.lifecycle.ViewModel
@@ -11,16 +10,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import ru.dr.meterreadings.data.local.dao.MeterDao
-import ru.dr.meterreadings.data.mappers.KvcMeterMapper
-import ru.dr.meterreadings.data.remote.dto.KvcCounterDto
-import ru.dr.meterreadings.data.remote.dto.KvcLocationDto
+import ru.dr.meterreadings.data.mappers.UniversalMeterMapper
 import ru.dr.meterreadings.data.repository.AccountRepository
 import ru.dr.meterreadings.data.repository.ProfileRepository
-import ru.dr.meterreadings.data.repository.providers.kvc.KvcRepository
+import ru.dr.meterreadings.domain.connector.GetTransmissionPeriod
+import ru.dr.meterreadings.domain.connector.LoadMeters
+import ru.dr.meterreadings.domain.connector.ProviderConnectorFactory
+import ru.dr.meterreadings.domain.connector.SubmitReadings
 import ru.dr.meterreadings.models.domain.AccountDomainModel
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
 import ru.dr.meterreadings.models.ui.MeterUiModel
-// ✅ ЗАМЕНА java.time.* на старые классы
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
@@ -30,15 +29,15 @@ import javax.inject.Inject
  *
  * Управляет:
  * - Загрузкой и отображением списка аккаунтов (ЛС) профиля
- * - Загрузкой счётчиков по каждому аккаунту
+ * - Загрузкой счётчиков по каждому аккаунту (универсально через коннекторы)
  * - Отправкой показаний через API провайдера
- * - Кешированием данных КВЦ для работы без повторных запросов
+ * - Кешированием данных для работы без повторных запросов
  */
 @HiltViewModel
 class ProfileDetailViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val profileRepository: ProfileRepository,
-    private val kvcRepository: KvcRepository,
+    private val providerConnectorFactory: ProviderConnectorFactory,
     private val meterDao: MeterDao
 ) : ViewModel() {
 
@@ -46,11 +45,11 @@ class ProfileDetailViewModel @Inject constructor(
     // STATE (Состояние экрана)
     // ============================================
 
-    /** ID текущего профиля, выбранного на экране */
+    /** ID текущего профиля */
     private val _profileId = MutableStateFlow<String?>(null)
     val profileId: StateFlow<String?> = _profileId.asStateFlow()
 
-    /** Данные текущего профиля (название, иконка и т.п.) */
+    /** Данные текущего профиля */
     private val _profile = MutableStateFlow<ProfileDomainModel?>(null)
     val profile: StateFlow<ProfileDomainModel?> = _profile.asStateFlow()
 
@@ -66,11 +65,11 @@ class ProfileDetailViewModel @Inject constructor(
     private val _meters = MutableStateFlow<List<MeterUiModel>>(emptyList())
     val meters: StateFlow<List<MeterUiModel>> = _meters.asStateFlow()
 
-    /** Флаг глобальной загрузки (показывается индикатор на экране) */
+    /** Флаг глобальной загрузки */
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    /** Текст ошибки для показа в UI (Snackbar/диалог) */
+    /** Текст ошибки для показа в UI */
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
@@ -78,20 +77,15 @@ class ProfileDetailViewModel @Inject constructor(
     private val _submittingMeters = MutableStateFlow<Set<String>>(emptySet())
     val submittingMeters: StateFlow<Set<String>> = _submittingMeters.asStateFlow()
 
-    /** Кеш данных КВЦ по аккаунтам: id аккаунта → location + список счётчиков */
-    private val _kvcDataCache = MutableStateFlow<Map<String, KvcCachedData>>(emptyMap())
+    /** Универсальный кеш данных провайдеров (для submitReading) */
+    private val _providerCache = MutableStateFlow<Map<String, ProviderCacheData>>(emptyMap())
 
     // ============================================
     // PUBLIC METHODS (Публичные методы)
     // ============================================
 
     /**
-     * Инициализирует экран детализации профиля:
-     * 1) Сохраняет ID профиля
-     * 2) Подписывается на изменения профиля из БД
-     * 3) Подписывается на список аккаунтов и при их наличии загружает счётчики
-     *
-     * @param profileId UUID профиля
+     * Инициализирует экран детализации профиля
      */
     fun initialize(profileId: String) {
         _profileId.value = profileId
@@ -108,12 +102,9 @@ class ProfileDetailViewModel @Inject constructor(
             accountRepository.getAccountsByProfileId(profileId).collect { accounts ->
                 println("🔍 [ProfileDetailViewModel] Обновление аккаунтов: ${accounts.size}")
                 _accounts.value = accounts
-
                 if (accounts.isNotEmpty()) {
-                    // Если аккаунты есть — грузим счётчики и адреса
                     loadMetersForAllAccounts(accounts)
                 } else {
-                    // Если аккаунтов нет — очищаем состояние
                     _meters.value = emptyList()
                     _accountAddresses.value = emptyMap()
                     _isLoading.value = false
@@ -128,22 +119,33 @@ class ProfileDetailViewModel @Inject constructor(
     fun submitReading(meter: MeterUiModel, newValue: Int) {
         viewModelScope.launch {
             _submittingMeters.value = _submittingMeters.value + meter.id
-
             try {
                 println("📤 [ProfileDetailViewModel] Отправляем показание: ${meter.type} = $newValue")
 
-                val kvcData = _kvcDataCache.value[meter.accountId]
-                    ?: throw Exception("Данные КВЦ не загружены. Обновите страницу.")
+                // Находим аккаунт по meterId
+                val account = _accounts.value.firstOrNull { it.id == meter.accountId }
+                    ?: throw Exception("Аккаунт не найден")
 
-                val counterId = meter.id.substringAfterLast("_").toInt()
-                val kvcCounter = kvcData.counters.find { it.idCnt == counterId }
-                    ?: throw Exception("Счётчик не найден")
+                // Получаем коннектор провайдера
+                val connector = providerConnectorFactory.getConnector(account.providerId)
 
-                val result = kvcRepository.submitReading(
-                    counter = kvcCounter,
-                    location = kvcData.location,
+                // Проверяем, поддерживает ли провайдер отправку показаний
+                if (connector !is SubmitReadings) {
+                    throw Exception("Провайдер не поддерживает отправку показаний")
+                }
+
+                // Получаем API ID счётчика из кеша
+                val cacheData = _providerCache.value[account.id]
+                val apiCounterId = cacheData?.meterApiIds?.get(meter.id)
+                    ?: throw Exception("Данные счётчика не загружены. Обновите страницу.")
+
+                // Отправляем показание
+                val result = connector.submitReading(
+                    counterId = apiCounterId,
+                    accountNumber = account.accountNumber,
                     value = newValue.toString(),
-                    valueNight = null
+                    valueNight = null,
+                    regionId = account.regionId?.toString()
                 )
 
                 if (result.isFailure) {
@@ -153,10 +155,9 @@ class ProfileDetailViewModel @Inject constructor(
 
                 println("✅ [ProfileDetailViewModel] Показание успешно передано")
 
-                // ✅ ИСПОЛЬЗУЕМ SimpleDateFormat вместо LocalDate
+                // Обновляем дату передачи в БД
                 val today = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
                     .format(Calendar.getInstance().time)
-
                 meterDao.updateSubmissionDate(
                     meterId = meter.id,
                     date = today
@@ -164,12 +165,12 @@ class ProfileDetailViewModel @Inject constructor(
 
                 println("✅ [submitReading] Дата передачи обновлена в БД: $today")
 
+                // Перезагружаем счётчики
                 _accounts.value.let { accounts ->
                     if (accounts.isNotEmpty()) {
                         loadMetersForAllAccounts(accounts)
                     }
                 }
-
             } catch (e: Exception) {
                 println("❌ [ProfileDetailViewModel] Ошибка передачи: ${e.message}")
                 e.printStackTrace()
@@ -212,13 +213,16 @@ class ProfileDetailViewModel @Inject constructor(
     // PRIVATE METHODS (Внутренние методы)
     // ============================================
 
+    /**
+     * Загружает счётчики для всех аккаунтов (универсально через коннекторы)
+     */
     private fun loadMetersForAllAccounts(accounts: List<AccountDomainModel>) {
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
 
             val allMeters = mutableListOf<MeterUiModel>()
-            val kvcCache = mutableMapOf<String, KvcCachedData>()
+            val providerCache = mutableMapOf<String, ProviderCacheData>()
             val addresses = mutableMapOf<String, String>()
 
             try {
@@ -228,36 +232,66 @@ class ProfileDetailViewModel @Inject constructor(
                     println("📋 [ProfileDetailViewModel] Аккаунт: ${account.accountNumber}, Провайдер: ${account.providerId}")
 
                     try {
-                        when (account.providerId) {
-                            "1" -> {
-                                val (meters, address) = loadKvcMeters(account, kvcCache)
-                                allMeters.addAll(meters)
-                                addresses[account.id] = address
-                                println("✅ [ProfileDetailViewModel] Загружено ${meters.size} счётчиков КВЦ")
-                                println("   📍 Адрес: $address")
-                            }
-                            else -> {
-                                println("⚠️ [ProfileDetailViewModel] Провайдер ${account.providerId} пока не поддерживается")
-                            }
+                        // ✅ Получаем коннектор через фабрику
+                        val connector = providerConnectorFactory.getConnector(account.providerId)
+
+                        // ✅ Проверяем, поддерживает ли провайдер загрузку счётчиков
+                        if (connector !is LoadMeters) {
+                            println("⚠️ [ProfileDetailViewModel] Провайдер ${account.providerId} не поддерживает загрузку счётчиков")
+                            continue
                         }
+
+                        // ✅ Загружаем счётчики через универсальный интерфейс
+                        val result = connector.loadMeters(
+                            accountNumber = account.accountNumber,
+                            regionId = account.regionId?.toString()
+                        )
+
+                        result.fold(
+                            onSuccess = { loadResult ->
+                                // Маппинг в UI
+                                val uiMeters = UniversalMeterMapper.mapListToUi(
+                                    meters = loadResult.meters,
+                                    accountId = account.id
+                                )
+                                allMeters.addAll(uiMeters)
+                                addresses[account.id] = loadResult.address
+
+                                // Сохраняем в БД
+                                val entities = UniversalMeterMapper.mapListToEntity(
+                                    meters = loadResult.meters,
+                                    accountId = account.id
+                                )
+                                meterDao.insertAll(entities)
+
+                                // Создаём кеш для submitReading
+                                val meterApiIds = loadResult.meters.associate {
+                                    "${account.id}_${it.id}" to it.id
+                                }
+                                providerCache[account.id] = ProviderCacheData(
+                                    meterApiIds = meterApiIds,
+                                    rawData = loadResult.cacheData
+                                )
+
+                                println("✅ [ProfileDetailViewModel] Загружено ${uiMeters.size} счётчиков для ЛС ${account.accountNumber}")
+                            },
+                            onFailure = { error ->
+                                println("❌ [ProfileDetailViewModel] Ошибка для ЛС ${account.accountNumber}: ${error.message}")
+                            }
+                        )
                     } catch (e: Exception) {
-                        println("❌ [ProfileDetailViewModel] Ошибка для ЛС ${account.accountNumber}: ${e.message}")
+                        println("❌ [ProfileDetailViewModel] Ошибка для аккаунта ${account.accountNumber}: ${e.message}")
                     }
                 }
 
                 _meters.value = allMeters
                 _accountAddresses.value = addresses
-                _kvcDataCache.value = kvcCache
+                _providerCache.value = providerCache
 
-                val providerIds = accounts.map { it.providerId }.toSet()
-                for (providerId in providerIds) {
-                    if (kvcCache.isNotEmpty()) {
-                        updateProviderTransmissionPeriod(providerId)
-                    }
-                }
+                // Обновляем периоды передачи
+                updateTransmissionPeriods(accounts)
 
                 println("✅ [ProfileDetailViewModel] ИТОГО загружено счётчиков: ${allMeters.size}")
-
             } catch (e: Exception) {
                 println("❌ [ProfileDetailViewModel] Общая ошибка: ${e.message}")
                 e.printStackTrace()
@@ -268,148 +302,64 @@ class ProfileDetailViewModel @Inject constructor(
         }
     }
 
-    private suspend fun loadKvcMeters(
-        account: AccountDomainModel,
-        kvcCache: MutableMap<String, KvcCachedData>
-    ): Pair<List<MeterUiModel>, String> {
-        println("=".repeat(60))
-        println("🔍 [loadKvcMeters] НАЧАЛО загрузки для аккаунта")
-        println("   Account ID: ${account.id}")
-        println("   Account Number: ${account.accountNumber}")
-        println("   Region ID: ${account.regionId}")
-        println("=".repeat(60))
-
-        val regionId = account.regionId
-            ?: throw Exception("Для аккаунта КВЦ не указан регион")
-
-        // ШАГ 1: Загружаем конфигурации БД
-        println("📡 [loadKvcMeters] ШАГ 1: Загрузка конфигураций БД для региона $regionId")
-        val locationsResult = kvcRepository.getLocationsForRegion(regionId)
-        if (locationsResult.isFailure) {
-            throw locationsResult.exceptionOrNull() ?: Exception("Не удалось загрузить конфигурации БД")
-        }
-        val locations = locationsResult.getOrThrow()
-        println("✅ [loadKvcMeters] ШАГ 1 OK: Конфигураций БД: ${locations.size}")
-
-        // ШАГ 2: Ищем абонента
-        println("📡 [loadKvcMeters] ШАГ 2: Поиск абонента ${account.accountNumber}")
-        val abonentResult = kvcRepository.getAbonentInfo(
-            locations = locations,
-            accountNumber = account.accountNumber,
-            target = 0
-        )
-        if (abonentResult.isFailure) {
-            throw abonentResult.exceptionOrNull() ?: Exception("Абонент не найден")
-        }
-        val abonentInfo = abonentResult.getOrThrow()
-        val address = abonentInfo.getFullAddress()
-        println("✅ [loadKvcMeters] ШАГ 2 OK: Абонент найден")
-        println("   Адрес: $address")
-
-        // ШАГ 3: Получаем счётчики
-        println("📡 [loadKvcMeters] ШАГ 3: Загрузка счётчиков")
-        val countersResult = kvcRepository.getCounters(
-            location = abonentInfo.location,
-            accountNumber = account.accountNumber
-        )
-        if (countersResult.isFailure) {
-            throw countersResult.exceptionOrNull() ?: Exception("Не удалось загрузить счётчики")
-        }
-        val kvcCounters = countersResult.getOrThrow()
-        println("✅ [loadKvcMeters] ШАГ 3 OK: Счётчиков от API: ${kvcCounters.size}")
-
-        // ШАГ 4: Сохраняем в БД
-        val meterEntities = KvcMeterMapper.mapListToEntity(
-            kvcCounters = kvcCounters,
-            accountId = account.id
-        )
-        meterDao.insertAll(meterEntities)
-        println("✅ [loadKvcMeters] Счётчики сохранены в БД: ${meterEntities.size}")
-
-        // ШАГ 5: Маппинг в UI
-        println("🔄 [loadKvcMeters] ШАГ 4: Маппинг в UI модели")
-        val uiMeters = KvcMeterMapper.mapListToUi(
-            kvcCounters = kvcCounters,
-            accountId = account.id
-        )
-        println("✅ [loadKvcMeters] ШАГ 4 OK: UI моделей создано: ${uiMeters.size}")
-
-        // ШАГ 6: Кладём в кеш
-        kvcCache[account.id] = KvcCachedData(
-            location = abonentInfo.location,
-            counters = kvcCounters
-        )
-
-        println("=".repeat(60))
-        println("✅ [loadKvcMeters] ЗАВЕРШЕНО успешно")
-        println("=".repeat(60))
-
-        return Pair(uiMeters, address)
-    }
-
     /**
-     * Обновляет период передачи показаний для провайдера
+     * Обновление периодов передачи для всех провайдеров
      */
-    private suspend fun updateProviderTransmissionPeriod(providerId: String) {
-        try {
-            // ✅ ИСПОЛЬЗУЕМ SimpleDateFormat вместо LocalDate
-            val currentMonth = SimpleDateFormat("yyyy-MM", Locale.getDefault())
-                .format(Calendar.getInstance().time)
+    private suspend fun updateTransmissionPeriods(accounts: List<AccountDomainModel>) {
+        val providerIds = accounts.map { it.providerId }.toSet()
 
-            println("📅 [updateProviderTransmissionPeriod] Провайдер: $providerId, Месяц: $currentMonth")
+        for (providerId in providerIds) {
+            try {
+                val connector = providerConnectorFactory.getConnector(providerId)
 
-            val provider = profileRepository.getProviderById(providerId).first()
-            if (provider == null) {
-                println("⚠️ [updateProviderTransmissionPeriod] Провайдер $providerId не найден")
-                return
+                // Проверяем, поддерживает ли провайдер получение периода
+                if (connector !is GetTransmissionPeriod) {
+                    println("⚠️ [ProfileDetailViewModel] Провайдер $providerId не поддерживает получение периода")
+                    continue
+                }
+
+                // Находим первый аккаунт этого провайдера
+                val account = accounts.firstOrNull { it.providerId == providerId } ?: continue
+
+                // Проверяем, загружен ли период для текущего месяца
+                val currentMonth = SimpleDateFormat("yyyy-MM", Locale.getDefault())
+                    .format(Calendar.getInstance().time)
+
+                val provider = profileRepository.getProviderById(providerId).first()
+                if (provider?.periodLoadedForMonth == currentMonth) {
+                    println("✅ [ProfileDetailViewModel] Период для провайдера $providerId уже загружен")
+                    continue
+                }
+
+                // Загружаем период
+                val periodResult = connector.getTransmissionPeriod(
+                    accountNumber = account.accountNumber,
+                    regionId = account.regionId
+                )
+
+                periodResult.onSuccess { period ->
+                    profileRepository.updateProviderTransmissionPeriod(
+                        providerId = providerId,
+                        periodStartDay = period.startDay,
+                        periodEndDay = period.endDay
+                    )
+                    println("✅ [ProfileDetailViewModel] Период для провайдера $providerId: ${period.startDay}-${period.endDay}")
+                }
+            } catch (e: Exception) {
+                println("❌ [ProfileDetailViewModel] Ошибка обновления периода для $providerId: ${e.message}")
             }
-
-            if (provider.periodLoadedForMonth == currentMonth) {
-                println("✅ [updateProviderTransmissionPeriod] Период уже загружен для $currentMonth")
-                println("   Период: ${provider.transmissionPeriodStartDay}-${provider.transmissionPeriodEndDay}")
-                return
-            }
-
-            println("🔄 [updateProviderTransmissionPeriod] Период НЕ загружен, загружаем...")
-
-            val kvcData = _kvcDataCache.value.values.firstOrNull()
-            if (kvcData == null) {
-                println("⚠️ [updateProviderTransmissionPeriod] Нет данных в кеше")
-                return
-            }
-
-            val transitDaysResult = kvcRepository.getTransitDays(
-                location = kvcData.location,
-                accountNumber = _accounts.value.firstOrNull()?.accountNumber ?: ""
-            )
-
-            if (transitDaysResult.isFailure) {
-                println("❌ [updateProviderTransmissionPeriod] Ошибка: ${transitDaysResult.exceptionOrNull()?.message}")
-                return
-            }
-
-            val transitDays = transitDaysResult.getOrThrow()
-            println("✅ [updateProviderTransmissionPeriod] Период получен: ${transitDays.first}-${transitDays.last}")
-
-            profileRepository.updateProviderTransmissionPeriod(
-                providerId = providerId,
-                periodStartDay = transitDays.first,
-                periodEndDay = transitDays.last
-            )
-
-            println("✅ [updateProviderTransmissionPeriod] Период сохранён для месяца $currentMonth")
-
-        } catch (e: Exception) {
-            println("❌ [updateProviderTransmissionPeriod] Ошибка: ${e.message}")
-            e.printStackTrace()
         }
     }
 
+    // ============================================
+    // DATA CLASSES
+    // ============================================
+
     /**
-     * Внутренняя структура для кеша данных КВЦ по аккаунту
+     * Универсальный кеш данных провайдера
      */
-    private data class KvcCachedData(
-        val location: KvcLocationDto,
-        val counters: List<KvcCounterDto>
+    private data class ProviderCacheData(
+        val meterApiIds: Map<String, String>,  // UI ID → API ID счётчика
+        val rawData: Any? = null  // Опционально: специфичные данные провайдера
     )
 }

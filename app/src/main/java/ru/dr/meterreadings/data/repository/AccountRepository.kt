@@ -59,7 +59,7 @@ class AccountRepository @Inject constructor(
      */
     suspend fun addAccount(
         profileId: String,
-        providerId: String,
+        providerId: Long,
         accountNumber: String,
         regionId: Int? = null,
         login: String? = null,

@@ -29,6 +29,7 @@ import androidx.navigation.NavController
 import ru.dr.meterreadings.models.ui.AppThemeMode
 import ru.dr.meterreadings.viewmodels.AppSettingsViewModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
+import ru.dr.meterreadings.ui.components.DayPickerDialog
 import ru.dr.meterreadings.R
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -148,6 +149,96 @@ fun AppSettingsScreen(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+// ⏰ ГРУППА: НАПОМИНАНИЯ
+            SettingsGroup(title = "⏰ Напоминания") {
+                if (settings == null) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp)
+                    )
+                } else {
+                    // Глобальный переключатель напоминаний
+                    GlobalRemindersSwitch(
+                        enabled = settings!!.globalRemindersEnabled,
+                        isLoading = isLoading,
+                        onCheckedChange = { enabled ->
+                            viewModel.updateGlobalReminders(enabled)
+                        }
+                    )
+
+                    // Показываем настройки только если напоминания включены
+                    if (settings!!.globalRemindersEnabled) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // ⏰ Время напоминания (глобально)
+                        ReminderTimeSetting(
+                            hour = settings!!.reminderTimeHour,
+                            minute = settings!!.reminderTimeMinute,
+                            isLoading = isLoading,
+                            onTimeChange = { hour, minute ->
+                                viewModel.updateReminderTime(hour, minute)
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // 📅 Режим периода (AUTO/MANUAL)
+                        ReminderPeriodModeSelector(
+                            mode = settings!!.reminderPeriodMode,
+                            isLoading = isLoading,
+                            onModeChange = { mode ->
+                                viewModel.updateReminderPeriodMode(mode)
+                            }
+                        )
+
+                        // Если режим AUTO, показываем настройку дней
+                        if (settings!!.reminderPeriodMode == "AUTO") {
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            ReminderDaysBeforeSlider(
+                                days = settings!!.reminderDaysBeforeStart,
+                                isLoading = isLoading,
+                                onDaysChange = { days ->
+                                    viewModel.updateReminderDaysBeforeStart(days)
+                                }
+                            )
+
+                            // Показываем список провайдеров с рассчитанными днями (только просмотр)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            ProvidersRemindersAutoList(
+                                providers = providers,
+                                daysBeforeStart = settings!!.reminderDaysBeforeStart
+                            )
+                        }
+
+
+                        // Если режим MANUAL, показываем список провайдеров
+                        if (settings!!.reminderPeriodMode == "MANUAL") {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            ProvidersRemindersList(
+                                providers = providers,
+                                isLoading = isLoading,
+                                onProviderReminderDayChange = { providerId, day ->
+                                    viewModel.updateProviderReminderDay(providerId, day)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
         }
     }
 }
@@ -410,7 +501,7 @@ private fun ProviderNotificationSwitch(
 private fun ProvidersNotificationsList(
     providers: List<ProviderUiModel>,  // ← UI модель
     isLoading: Boolean,
-    onProviderNotificationChange: (String, Boolean) -> Unit
+    onProviderNotificationChange: (Long, Boolean) -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -448,7 +539,7 @@ private fun ProvidersNotificationsList(
 private fun ProviderNotificationRow(
     providerUi: ProviderUiModel,  // ← UI модель
     isLoading: Boolean,
-    onNotificationChange: (String, Boolean) -> Unit
+    onNotificationChange: (Long, Boolean) -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -490,3 +581,548 @@ private fun ProviderNotificationRow(
         )
     }
 }
+
+/**
+ * Глобальный переключатель напоминаний.
+ *
+ * Мастер-флаг: если выключен, то напоминания для всех провайдеров отключены.
+ */
+@Composable
+private fun GlobalRemindersSwitch(
+    enabled: Boolean,
+    isLoading: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Notifications,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = "Напоминания о передаче показаний",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = if (enabled) {
+                        "Напоминания включены"
+                    } else {
+                        "Напоминания отключены"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Switch(
+            checked = enabled,
+            onCheckedChange = onCheckedChange,
+            enabled = !isLoading
+        )
+    }
+}
+
+/**
+ * Настройка времени напоминания (глобально для всех провайдеров).
+ */
+@Composable
+private fun ReminderTimeSetting(
+    hour: Int,
+    minute: Int,
+    isLoading: Boolean,
+    onTimeChange: (Int, Int) -> Unit
+) {
+    var showTimePicker by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !isLoading) { showTimePicker = true }
+            .padding(vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Время напоминания",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = "Когда показывать напоминания",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Text(
+            text = String.format("%02d:%02d", hour, minute),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+
+    // TimePicker Dialog
+    if (showTimePicker) {
+        TimePickerDialog(
+            initialHour = hour,
+            initialMinute = minute,
+            onConfirm = { selectedHour, selectedMinute ->
+                onTimeChange(selectedHour, selectedMinute)
+                showTimePicker = false
+            },
+            onDismiss = { showTimePicker = false }
+        )
+    }
+}
+
+/**
+ * Выбор режима периода: AUTO (по периоду провайдера) или MANUAL (вручную).
+ */
+@Composable
+private fun ReminderPeriodModeSelector(
+    mode: String,
+    isLoading: Boolean,
+    onModeChange: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = "Режим расчёта периода",
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        // Вариант 1: Автоматически
+        ReminderModeRow(
+            title = "Автоматически",
+            subtitle = "По периоду передачи с сайта провайдера",
+            selected = mode == "AUTO",
+            enabled = !isLoading,
+            onClick = { onModeChange("AUTO") }
+        )
+
+        // Вариант 2: Вручную
+        ReminderModeRow(
+            title = "Вручную",
+            subtitle = "Указать день месяца для каждого провайдера",
+            selected = mode == "MANUAL",
+            enabled = !isLoading,
+            onClick = { onModeChange("MANUAL") }
+        )
+    }
+}
+
+/**
+ * Строка с вариантом режима напоминания (RadioButton).
+ */
+@Composable
+private fun ReminderModeRow(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { onClick() },
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        RadioButton(
+            selected = selected,
+            onClick = onClick,
+            enabled = enabled
+        )
+    }
+}
+
+/**
+ * Слайдер для выбора количества дней до начала периода (для режима AUTO).
+ */
+@Composable
+private fun ReminderDaysBeforeSlider(
+    days: Int,
+    isLoading: Boolean,
+    onDaysChange: (Int) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "За сколько дней напоминать",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = "$days ${getDaysWord(days)}",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        Slider(
+            value = days.toFloat(),
+            onValueChange = { onDaysChange(it.toInt()) },
+            valueRange = 1f..7f,
+            steps = 5, // 1, 2, 3, 4, 5, 6, 7
+            enabled = !isLoading
+        )
+
+        Text(
+            text = "Напоминание появится за $days ${getDaysWord(days)} до начала периода передачи показаний",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/**
+ * Список провайдеров с настройкой дня месяца для напоминания (для режима MANUAL).
+ */
+@Composable
+private fun ProvidersRemindersList(
+    providers: List<ProviderUiModel>,
+    isLoading: Boolean,
+    onProviderReminderDayChange: (Long, Int) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "День напоминания для каждого поставщика",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        if (providers.isEmpty()) {
+            Text(
+                text = "Поставщики не добавлены",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        } else {
+            providers.forEach { providerUi ->
+                ProviderReminderDayRow(
+                    providerUi = providerUi,
+                    isLoading = isLoading,
+                    onDayChange = onProviderReminderDayChange
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Строка с провайдером и выбором дня месяца для напоминания.
+ */
+@Composable
+private fun ProviderReminderDayRow(
+    providerUi: ProviderUiModel,
+    isLoading: Boolean,
+    onDayChange: (Long, Int) -> Unit
+) {
+    var showDayPicker by remember { mutableStateOf(false) }
+    val currentDay = providerUi.provider.reminderCustomStartDay ?: 1
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clickable(enabled = !isLoading) { showDayPicker = true },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Логотип
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(providerUi.provider.logoUrl)
+                .crossfade(true)
+                .placeholder(R.drawable.ic_provider_placeholder)
+                .error(R.drawable.ic_provider_placeholder)
+                .build(),
+            contentDescription = "Логотип ${providerUi.provider.name}",
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(6.dp)),
+            contentScale = ContentScale.Fit
+        )
+
+        // Название
+        Text(
+            text = providerUi.provider.name,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
+        )
+
+        // День месяца
+        Text(
+            text = "$currentDay число",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+
+    if (showDayPicker) {
+        DayPickerDialog(
+            initialDay = currentDay,
+            onConfirm = { selectedDay ->
+                onDayChange(providerUi.provider.id, selectedDay)
+                showDayPicker = false
+            },
+            onDismiss = { showDayPicker = false }
+        )
+    }
+}
+
+/**
+ * Склонение слова "день".
+ */
+private fun getDaysWord(days: Int): String {
+    return when {
+        days % 10 == 1 && days % 100 != 11 -> "день"
+        days % 10 in 2..4 && days % 100 !in 12..14 -> "дня"
+        else -> "дней"
+    }
+}
+
+/**
+ * Диалог выбора времени (Material3 TimePicker).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimePickerDialog(
+    initialHour: Int,
+    initialMinute: Int,
+    onConfirm: (Int, Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val timePickerState = rememberTimePickerState(
+        initialHour = initialHour,
+        initialMinute = initialMinute,
+        is24Hour = true
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = {
+                onConfirm(timePickerState.hour, timePickerState.minute)
+            }) {
+                Text("OK")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Отмена")
+            }
+        },
+        text = {
+            TimePicker(state = timePickerState)
+        }
+    )
+}
+
+/**
+ * Список провайдеров с рассчитанными днями напоминаний (для режима AUTO).
+ * Только для просмотра, редактирование недоступно.
+ */
+@Composable
+private fun ProvidersRemindersAutoList(
+    providers: List<ProviderUiModel>,
+    daysBeforeStart: Int
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Рассчитанные дни напоминаний",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        if (providers.isEmpty()) {
+            Text(
+                text = "Поставщики не добавлены",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        } else {
+            providers.forEach { providerUi ->
+                ProviderReminderAutoRow(
+                    providerUi = providerUi,
+                    daysBeforeStart = daysBeforeStart
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Строка с провайдером и рассчитанным днём напоминания (только просмотр).
+ */
+@Composable
+private fun ProviderReminderAutoRow(
+    providerUi: ProviderUiModel,
+    daysBeforeStart: Int
+) {
+    val provider = providerUi.provider
+
+    // Вычисляем день напоминания
+    val reminderInfo = calculateReminderDay(
+        periodStartDay = provider.transmissionPeriodStartDay,
+        daysBeforeStart = daysBeforeStart
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Логотип
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(provider.logoUrl)
+                .crossfade(true)
+                .placeholder(R.drawable.ic_provider_placeholder)
+                .error(R.drawable.ic_provider_placeholder)
+                .build(),
+            contentDescription = "Логотип ${provider.name}",
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(6.dp)),
+            contentScale = ContentScale.Fit
+        )
+
+        // Название и информация о периоде
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = provider.name,
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            // Информация о периоде и напоминании
+            if (provider.transmissionPeriodStartDay != null && provider.transmissionPeriodEndDay != null) {
+                Text(
+                    text = "Период: ${provider.transmissionPeriodStartDay}-${provider.transmissionPeriodEndDay}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Text(
+                    text = "Период не загружен",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+
+        // Рассчитанный день напоминания
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = reminderInfo.displayText,
+                style = MaterialTheme.typography.titleSmall,
+                color = if (reminderInfo.isValid) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
+                }
+            )
+            if (reminderInfo.isPreviousMonth) {
+                Text(
+                    text = "пред. мес.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Вспомогательный класс для информации о дне напоминания.
+ */
+private data class ReminderDayInfo(
+    val day: Int,
+    val isPreviousMonth: Boolean,
+    val isValid: Boolean,
+    val displayText: String
+)
+
+/**
+ * Вычислить день напоминания на основе периода передачи.
+ *
+ * @param periodStartDay День начала периода (из БД провайдера)
+ * @param daysBeforeStart За сколько дней до начала напоминать
+ * @return Информация о дне напоминания
+ */
+private fun calculateReminderDay(
+    periodStartDay: Int?,
+    daysBeforeStart: Int
+): ReminderDayInfo {
+    if (periodStartDay == null) {
+        return ReminderDayInfo(
+            day = 0,
+            isPreviousMonth = false,
+            isValid = false,
+            displayText = "—"
+        )
+    }
+
+    val reminderDay = periodStartDay - daysBeforeStart
+
+    return if (reminderDay >= 1) {
+        // Напоминание в том же месяце
+        ReminderDayInfo(
+            day = reminderDay,
+            isPreviousMonth = false,
+            isValid = true,
+            displayText = "$reminderDay число"
+        )
+    } else {
+        // Напоминание в предыдущем месяце
+        // Для упрощения считаем, что в месяце 30 дней
+        val adjustedDay = 30 + reminderDay
+        ReminderDayInfo(
+            day = adjustedDay,
+            isPreviousMonth = true,
+            isValid = true,
+            displayText = "$adjustedDay число"
+        )
+    }
+}
+

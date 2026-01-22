@@ -1,43 +1,43 @@
 package ru.dr.meterreadings.models.domain
 
 data class ProviderDomainModel(
-    val id: String,
+    val id: Long,
     val name: String,
     val type: Type,
-    val logoUrl: String?,   // URL
+    val logoUrl: String? = null,
     val baseUrl: String,
     val authType: AuthType,
 
     // ============================================
     // ПЕРИОД ПЕРЕДАЧИ ПОКАЗАНИЙ
     // ============================================
-    val transmissionPeriodStartDay: Int?,
-    val transmissionPeriodEndDay: Int?,
-    val lastPeriodUpdate: Long?,
-    val periodLoadedForMonth: String?,
+    val transmissionPeriodStartDay: Int? = null,
+    val transmissionPeriodEndDay: Int? = null,
+    val lastPeriodUpdate: Long? = null,
+    val periodLoadedForMonth: String? = null,
 
     // ============================================
     // НАСТРОЙКИ АВТООБНОВЛЕНИЯ
     // ============================================
-    val autoUpdateEnabled: Boolean,
-    val updateStartDay: Int,
-    val updateIntervalHours: Int,
-    val lastAutoUpdate: Long?,              // ✨ НОВОЕ
+    val autoUpdateEnabled: Boolean = false,
+    val updateStartDay: Int = 1,
+    val updateIntervalHours: Int = 1,
+    val lastAutoUpdate: Long? = null,
 
     // ============================================
     // НАСТРОЙКИ УВЕДОМЛЕНИЙ
     // ============================================
-    val notificationsEnabled: Boolean,
+    val notificationsEnabled: Boolean = false,
 
     // ============================================
     // НАСТРОЙКИ НАПОМИНАНИЙ
     // ============================================
-    val reminderEnabled: Boolean,
-    val reminderTimeHour: Int,
-    val reminderTimeMinute: Int,
-    val reminderPeriodMode: String,       // ✨ НОВОЕ: "AUTO" или "MANUAL"
-    val reminderCustomStartDay: Int?,       // ✨ НОВОЕ
-    val reminderCustomEndDay: Int?        // ✨ НОВОЕ
+    val reminderEnabled: Boolean = false,
+    val reminderTimeHour: Int = 9,
+    val reminderTimeMinute: Int = 0,
+    val reminderPeriodMode: String = "AUTO",
+    val reminderCustomStartDay: Int? = null,
+    val reminderCustomEndDay: Int? = null
 )
 
 enum class AuthType {

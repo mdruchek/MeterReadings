@@ -132,7 +132,7 @@ class ProfileRepository @Inject constructor(
     /**
      * Получить провайдера по ID (Flow)
      */
-    fun getProviderById(providerId: String): Flow<ProviderDomainModel?> {
+    fun getProviderById(providerId: Long): Flow<ProviderDomainModel?> {
         return providerDao.getById(providerId)
             .map { it?.toDomain() }
     }
@@ -141,7 +141,7 @@ class ProfileRepository @Inject constructor(
      * Обновить период передачи показаний для провайдера
      */
     suspend fun updateProviderTransmissionPeriod(
-        providerId: String,
+        providerId: Long,
         periodStartDay: Int,
         periodEndDay: Int
     ) {
@@ -195,7 +195,7 @@ class ProfileRepository @Inject constructor(
      * Обновить настройки провайдера
      */
     suspend fun updateProviderSettings(
-        providerId: String,
+        providerId: Long,
         autoUpdateEnabled: Boolean,
         updateStartDay: Int,
         updateIntervalHours: Int,

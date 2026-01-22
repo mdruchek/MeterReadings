@@ -14,47 +14,47 @@ import ru.dr.meterreadings.models.domain.Type
 @Entity(tableName = "providers")
 data class ProviderEntity(
     @PrimaryKey
-    val id: String,
+    val id: Long,
 
     // ============================================
     // ОСНОВНАЯ ИНФОРМАЦИЯ
     // ============================================
     val name: String,
-    val type: String,              // Type.name (для Room)
-    val logoUrl: String? = null,
+    val type: String,
+    val logoUrl: String?,
     val baseUrl: String,
-    val authType: String,          // AuthType.name (для Room)
+    val authType: String,
 
     // ============================================
     // ПЕРИОД ПЕРЕДАЧИ ПОКАЗАНИЙ
     // ============================================
-    val transmissionPeriodStartDay: Int? = null,
-    val transmissionPeriodEndDay: Int? = null,
-    val lastPeriodUpdate: Long? = null,
-    val periodLoadedForMonth: String? = null,
+    val transmissionPeriodStartDay: Int?,
+    val transmissionPeriodEndDay: Int?,
+    val lastPeriodUpdate: Long?,
+    val periodLoadedForMonth: String?,
 
     // ============================================
     // НАСТРОЙКИ АВТООБНОВЛЕНИЯ
     // ============================================
-    val autoUpdateEnabled: Boolean = false,
-    val updateStartDay: Int = 1,
-    val updateIntervalHours: Int = 1,
-    val lastAutoUpdate: Long? = null,              // ✨ НОВОЕ
+    val autoUpdateEnabled: Boolean,
+    val updateStartDay: Int,
+    val updateIntervalHours: Int,
+    val lastAutoUpdate: Long?,
 
     // ============================================
     // НАСТРОЙКИ УВЕДОМЛЕНИЙ
     // ============================================
-    val notificationsEnabled: Boolean = false,
+    val notificationsEnabled: Boolean,
 
     // ============================================
     // НАСТРОЙКИ НАПОМИНАНИЙ
     // ============================================
-    val reminderEnabled: Boolean = false,
-    val reminderTimeHour: Int = 9,
-    val reminderTimeMinute: Int = 0,
-    val reminderPeriodMode: String = "AUTO",       // ✨ НОВОЕ
-    val reminderCustomStartDay: Int? = null,       // ✨ НОВОЕ
-    val reminderCustomEndDay: Int? = null,         // ✨ НОВОЕ
+    val reminderEnabled: Boolean,
+    val reminderTimeHour: Int,
+    val reminderTimeMinute: Int,
+    val reminderPeriodMode: String,
+    val reminderCustomStartDay: Int?,
+    val reminderCustomEndDay: Int?,
 
     // ============================================
     // ТЕХНИЧЕСКИЕ ПОЛЯ
@@ -89,18 +89,16 @@ fun ProviderEntity.toDomain(): ProviderDomainModel {
         autoUpdateEnabled = autoUpdateEnabled,
         updateStartDay = updateStartDay,
         updateIntervalHours = updateIntervalHours,
-        lastAutoUpdate = lastAutoUpdate,                   // ✨ НОВОЕ
-
-        // Уведомления
+        lastAutoUpdate = lastAutoUpdate,
         notificationsEnabled = notificationsEnabled,
 
         // Напоминания
         reminderEnabled = reminderEnabled,
         reminderTimeHour = reminderTimeHour,
         reminderTimeMinute = reminderTimeMinute,
-        reminderPeriodMode = reminderPeriodMode,           // ✨ НОВОЕ
-        reminderCustomStartDay = reminderCustomStartDay,   // ✨ НОВОЕ
-        reminderCustomEndDay = reminderCustomEndDay        // ✨ НОВОЕ
+        reminderPeriodMode = reminderPeriodMode,
+        reminderCustomStartDay = reminderCustomStartDay,
+        reminderCustomEndDay = reminderCustomEndDay
     )
 }
 
@@ -129,19 +127,16 @@ fun ProviderDomainModel.toEntity(
         autoUpdateEnabled = autoUpdateEnabled,
         updateStartDay = updateStartDay,
         updateIntervalHours = updateIntervalHours,
-        lastAutoUpdate = lastAutoUpdate,                   // ✨ НОВОЕ
-
-        // Уведомления
+        lastAutoUpdate = lastAutoUpdate,
         notificationsEnabled = notificationsEnabled,
 
         // Напоминания
         reminderEnabled = reminderEnabled,
         reminderTimeHour = reminderTimeHour,
         reminderTimeMinute = reminderTimeMinute,
-        reminderPeriodMode = reminderPeriodMode,           // ✨ НОВОЕ
-        reminderCustomStartDay = reminderCustomStartDay,   // ✨ НОВОЕ
-        reminderCustomEndDay = reminderCustomEndDay,       // ✨ НОВОЕ
-
+        reminderPeriodMode = reminderPeriodMode,
+        reminderCustomStartDay = reminderCustomStartDay,
+        reminderCustomEndDay = reminderCustomEndDay,
         createdAt = createdAt,
         updatedAt = updatedAt
     )

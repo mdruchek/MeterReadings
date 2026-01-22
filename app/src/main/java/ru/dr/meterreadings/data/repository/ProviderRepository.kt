@@ -13,6 +13,7 @@ import ru.dr.meterreadings.models.domain.ProviderDomainModel
 import ru.dr.meterreadings.models.domain.Type
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.Calendar
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -43,7 +44,7 @@ class ProviderRepository @Inject constructor(
      *
      * @param id ID провайдера (String, например ProviderIds.KVC)
      */
-    fun getProviderById(id: String): Flow<ProviderDomainModel?> {  // ✅ ИСПРАВЛЕНО: String → Long
+    fun getProviderById(id: Long): Flow<ProviderDomainModel?> {  // ✅ ИСПРАВЛЕНО: String → Long
         return providerDao.getById(id).map { it?.toDomain() }
     }
 
@@ -122,7 +123,7 @@ class ProviderRepository @Inject constructor(
      * @param natificationsEnabled Уведомления провайдера (null = не менять)
      */
     suspend fun updateProviderNotifications(
-        providerId: String,
+        providerId: Long,
         updateNotificationsEnabled: Boolean?
     ) {
         try {
@@ -149,6 +150,43 @@ class ProviderRepository @Inject constructor(
         }
     }
 
+    /**
+     * Обновить кастомный день напоминания для провайдера (режим MANUAL).
+     *
+     * @param providerId ID провайдера
+     * @param day День месяца (1-31) или null для сброса
+     */
+    suspend fun updateProviderReminderDay(
+        providerId: Long,
+        day: Int?
+    ) {
+        try {
+            // Валидация дня месяца
+            if (day != null && (day < 1 || day > 31)) {
+                throw IllegalArgumentException("День должен быть от 1 до 31, получено: $day")
+            }
+
+            // Получаем текущего провайдера из БД
+            val provider = providerDao.getById(providerId).first()
+                ?: throw IllegalArgumentException("Provider not found: $providerId")
+
+            // Создаём обновлённый объект
+            val updatedProvider = provider.copy(
+                reminderCustomStartDay = day,
+                updatedAt = System.currentTimeMillis()
+            )
+
+            // Сохраняем в БД
+            providerDao.update(updatedProvider)
+            println("✅ [ProviderRepository] День напоминания обновлён для провайдера $providerId: $day")
+        } catch (e: Exception) {
+            println("❌ [ProviderRepository] Ошибка обновления дня напоминания: ${e.message}")
+            e.printStackTrace()
+            throw e
+        }
+    }
+
+
     // ========================================
     // СПЕЦИАЛЬНЫЕ ОПЕРАЦИИ
     // ========================================
@@ -174,7 +212,7 @@ class ProviderRepository @Inject constructor(
         periodEndDay: Int
     ) {
         try {
-            val provider = providerDao.getById(providerId.toString()).first()
+            val provider = providerDao.getById(providerId).first()
 
             if (provider != null) {
                 val currentMonth = LocalDate.now()
@@ -198,5 +236,21 @@ class ProviderRepository @Inject constructor(
             println("❌ [ProviderRepository] Ошибка обновления периода: ${e.message}")
             e.printStackTrace()
         }
+    }
+
+    /**
+     * Получить провайдеров, у которых сегодня период передачи показаний
+     */
+    suspend fun getProvidersInTransmissionPeriod(): List<ProviderDomainModel> {
+        val today = Calendar.getInstance()
+        val todayDay = today.get(Calendar.DAY_OF_MONTH)
+
+        return providerDao.getAll().first()
+            .filter { provider ->
+                val startDay = provider.transmissionPeriodStartDay
+                val endDay = provider.transmissionPeriodEndDay
+                startDay != null && endDay != null && todayDay in startDay..endDay
+            }
+            .map { it.toDomain() }
     }
 }
