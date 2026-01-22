@@ -45,7 +45,8 @@ interface SubmitReadings {
         accountNumber: String,
         value: String,
         valueNight: String? = null,
-        regionId: String? = null
+        regionId: String? = null,
+        cacheData: Any? = null
     ): Result<Unit>
 }
 

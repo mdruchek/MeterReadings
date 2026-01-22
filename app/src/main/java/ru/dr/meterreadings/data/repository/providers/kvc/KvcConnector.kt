@@ -1,6 +1,8 @@
 package ru.dr.meterreadings.data.repository.providers.kvc
 
 import ru.dr.meterreadings.data.mappers.KvcPeriodMapper
+import ru.dr.meterreadings.data.remote.dto.KvcCounterDto
+import ru.dr.meterreadings.data.remote.dto.KvcLocationDto
 import ru.dr.meterreadings.domain.connector.GetTransmissionPeriod
 import ru.dr.meterreadings.domain.connector.HasRegions
 import ru.dr.meterreadings.domain.connector.LoadMeters
@@ -222,6 +224,8 @@ class KvcConnector @Inject constructor(
         }
     }
 
+    // app/src/main/java/ru/dr/meterreadings/data/repository/providers/kvc/KvcConnector.kt
+
     /**
      * Передача показаний
      */
@@ -230,11 +234,76 @@ class KvcConnector @Inject constructor(
         accountNumber: String,
         value: String,
         valueNight: String?,
-        regionId: String?
+        regionId: String?,
+        cacheData: Any?
     ): Result<Unit> {
-        // TODO: Реализовать позже используя kvcRepository.submitReading()
-        return Result.failure(NotImplementedError("Передача показаний ещё не реализована"))
+        return try {
+            println("📤 [KvcConnector] Отправка показания: счётчик $counterId = $value")
+
+            // ✅ Пытаемся использовать кеш из ViewModel
+            val cache = cacheData as? Map<String, Any>
+
+            val location: KvcLocationDto
+            val kvcCounters: List<KvcCounterDto>
+
+            if (cache != null && cache.containsKey("location") && cache.containsKey("counters")) {
+                // ✅ Используем кеш из памяти
+                println("✅ [KvcConnector] Используем кеш из ViewModel")
+                location = cache["location"] as KvcLocationDto
+                kvcCounters = cache["counters"] as List<KvcCounterDto>
+            } else {
+                // ❌ Кеш пуст — загружаем заново через API
+                println("⚠️ [KvcConnector] Кеш пуст, загружаем данные через API")
+
+                val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
+                    "Для КВЦ необходимо указать регион"
+                }
+
+                // ШАГ 1: Конфигурации БД
+                val locations = kvcRepository.getLocationsForRegion(regionIdInt)
+                    .getOrElse { return Result.failure(it) }
+
+                // ШАГ 2: Информация об абоненте
+                val abonentInfo = kvcRepository.getAbonentInfo(
+                    locations = locations,
+                    accountNumber = accountNumber,
+                    target = 0
+                ).getOrElse { return Result.failure(it) }
+
+                location = abonentInfo.location
+
+                // ШАГ 3: Счётчики
+                kvcCounters = kvcRepository.getCounters(
+                    location = location,
+                    accountNumber = accountNumber
+                ).getOrElse { return Result.failure(it) }
+            }
+
+            // ШАГ 4: Находим счётчик
+            val counter = kvcCounters.firstOrNull { it.idCnt.toString() == counterId }
+                ?: return Result.failure(Exception("Счётчик с ID $counterId не найден"))
+
+            println("📋 [KvcConnector] Найден счётчик: ${counter.servName} №${counter.number}")
+
+            // ШАГ 5: Отправляем
+            val result = kvcRepository.submitReading(
+                counter = counter,
+                location = location,
+                value = value,
+                valueNight = valueNight
+            )
+
+            if (result.isSuccess) {
+                println("✅ [KvcConnector] Показание успешно передано")
+            }
+
+            result
+        } catch (e: Exception) {
+            println("❌ [KvcConnector] Ошибка: ${e.message}")
+            Result.failure(e)
+        }
     }
+
 
     override suspend fun getTransmissionPeriod(
         accountNumber: String,

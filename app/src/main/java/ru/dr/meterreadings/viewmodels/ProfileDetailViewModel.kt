@@ -122,30 +122,35 @@ class ProfileDetailViewModel @Inject constructor(
             try {
                 println("📤 [ProfileDetailViewModel] Отправляем показание: ${meter.type} = $newValue")
 
-                // Находим аккаунт по meterId
+                // Находим аккаунт
                 val account = _accounts.value.firstOrNull { it.id == meter.accountId }
                     ?: throw Exception("Аккаунт не найден")
 
-                // Получаем коннектор провайдера
+                // Получаем коннектор
                 val connector = providerConnectorFactory.getConnector(account.providerId)
 
-                // Проверяем, поддерживает ли провайдер отправку показаний
                 if (connector !is SubmitReadings) {
                     throw Exception("Провайдер не поддерживает отправку показаний")
                 }
 
-                // Получаем API ID счётчика из кеша
-                val cacheData = _providerCache.value[account.id]
-                val apiCounterId = cacheData?.meterApiIds?.get(meter.id)
+                // ✅ ИЗМЕНЕНО: Берём кеш из памяти
+                val cacheData = _providerCache.value[account.id]?.rawData
+
+                // ✅ ИЗМЕНЕНО: Берём API ID из кеша
+                val apiCounterId = _providerCache.value[account.id]?.meterApiIds?.get(meter.id)
                     ?: throw Exception("Данные счётчика не загружены. Обновите страницу.")
 
-                // Отправляем показание
+                println("📋 [ProfileDetailViewModel] API ID счётчика: $apiCounterId")
+                println("📦 [ProfileDetailViewModel] Кеш: ${if (cacheData != null) "ЕСТЬ" else "НЕТ"}")
+
+                // ✅ ИЗМЕНЕНО: Передаём кеш в submitReading
                 val result = connector.submitReading(
                     counterId = apiCounterId,
                     accountNumber = account.accountNumber,
                     value = newValue.toString(),
                     valueNight = null,
-                    regionId = account.regionId?.toString()
+                    regionId = account.regionId?.toString(),
+                    cacheData = cacheData  // ✅ НОВОЕ: передаём кеш
                 )
 
                 if (result.isFailure) {
@@ -171,6 +176,7 @@ class ProfileDetailViewModel @Inject constructor(
                         loadMetersForAllAccounts(accounts)
                     }
                 }
+
             } catch (e: Exception) {
                 println("❌ [ProfileDetailViewModel] Ошибка передачи: ${e.message}")
                 e.printStackTrace()
