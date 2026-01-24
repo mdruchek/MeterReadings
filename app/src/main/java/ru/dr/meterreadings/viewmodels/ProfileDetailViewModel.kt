@@ -13,6 +13,7 @@ import ru.dr.meterreadings.data.local.dao.MeterDao
 import ru.dr.meterreadings.data.mappers.UniversalMeterMapper
 import ru.dr.meterreadings.data.repository.AccountRepository
 import ru.dr.meterreadings.data.repository.ProfileRepository
+import ru.dr.meterreadings.domain.connector.GetCounterHistory
 import ru.dr.meterreadings.domain.connector.GetTransmissionPeriod
 import ru.dr.meterreadings.domain.connector.LoadMeters
 import ru.dr.meterreadings.domain.connector.ProviderConnectorFactory
@@ -136,9 +137,56 @@ class ProfileDetailViewModel @Inject constructor(
                 // ✅ ИЗМЕНЕНО: Берём кеш из памяти
                 val cacheData = _providerCache.value[account.id]?.rawData
 
-                // ✅ ИЗМЕНЕНО: Берём API ID из кеша
+                // ✅ Берём API ID из кеша
                 val apiCounterId = _providerCache.value[account.id]?.meterApiIds?.get(meter.id)
                     ?: throw Exception("Данные счётчика не загружены. Обновите страницу.")
+
+                // ✅ Валидация для провайдеров с ValidateReading
+//                if (connector is ValidateReading) {
+//                    val minValueResult = connector.getMinimumAllowedValue(
+//                        counterId = apiCounterId,
+//                        accountNumber = account.accountNumber,
+//                        regionId = account.regionId?.toString(),
+//                        cacheData = cacheData
+//                    )
+//
+//                    minValueResult.onSuccess { minValue ->
+//                        if (minValue != null && newValue < minValue) {
+//                            throw Exception("Показание не может быть меньше $minValue (показание предыдущего месяца)")
+//                        }
+//                    }
+//                }
+
+                // ✅ НОВОЕ: Валидация для КВЦ на основе истории
+                if (connector is GetCounterHistory) {
+                    val historyResult = connector.getCounterHistory(
+                        counterId = apiCounterId,
+                        accountNumber = account.accountNumber,
+                        regionId = account.regionId?.toString(),
+                        cacheData = cacheData
+                    )
+
+                    historyResult.onSuccess { history ->
+                        // Ищем показание предыдущего месяца
+                        val now = Calendar.getInstance()
+                        val currentYear = now.get(Calendar.YEAR)
+                        val currentMonth = now.get(Calendar.MONTH) + 1
+
+                        val previousMonth = if (currentMonth == 1) 12 else currentMonth - 1
+                        val previousYear = if (currentMonth == 1) currentYear - 1 else currentYear
+
+                        val previousEntry = history.firstOrNull {
+                            it.year == previousYear && it.month == previousMonth
+                        }
+
+                        if (previousEntry != null && newValue < previousEntry.value) {
+                            throw Exception(
+                                "Показание не может быть меньше ${previousEntry.value} " +
+                                        "(показание за ${previousMonth}/${previousYear})"
+                            )
+                        }
+                    }
+                }
 
                 println("📋 [ProfileDetailViewModel] API ID счётчика: $apiCounterId")
                 println("📦 [ProfileDetailViewModel] Кеш: ${if (cacheData != null) "ЕСТЬ" else "НЕТ"}")
@@ -161,14 +209,14 @@ class ProfileDetailViewModel @Inject constructor(
                 println("✅ [ProfileDetailViewModel] Показание успешно передано")
 
                 // Обновляем дату передачи в БД
-                val today = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
-                    .format(Calendar.getInstance().time)
-                meterDao.updateSubmissionDate(
-                    meterId = meter.id,
-                    date = today
-                )
+//                val today = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
+//                    .format(Calendar.getInstance().time)
+//                meterDao.updateSubmissionDate(
+//                    meterId = meter.id,
+//                    date = today
+//                )
 
-                println("✅ [submitReading] Дата передачи обновлена в БД: $today")
+//                println("✅ [submitReading] Дата передачи обновлена в БД: $today")
 
                 // Перезагружаем счётчики
                 _accounts.value.let { accounts ->
@@ -256,10 +304,46 @@ class ProfileDetailViewModel @Inject constructor(
                         result.fold(
                             onSuccess = { loadResult ->
                                 // Маппинг в UI
-                                val uiMeters = UniversalMeterMapper.mapListToUi(
-                                    meters = loadResult.meters,
-                                    accountId = account.id
-                                )
+//                                val uiMeters = UniversalMeterMapper.mapListToUi(
+//                                    meters = loadResult.meters,
+//                                    accountId = account.id
+//                                )
+
+                                val uiMeters = mutableListOf<MeterUiModel>()
+
+                                // ✅ НОВОЕ: Загружаем историю для каждого счётчика
+                                for (meter in loadResult.meters) {
+                                    var lastMonthConsumption: Int? = null
+
+                                    // Если провайдер поддерживает историю - загружаем
+                                    if (connector is GetCounterHistory) {
+                                        val historyResult = connector.getCounterHistory(
+                                            counterId = meter.id,
+                                            accountNumber = account.accountNumber,
+                                            regionId = account.regionId?.toString(),
+                                            cacheData = loadResult.cacheData
+                                        )
+
+                                        historyResult.onSuccess { history: List<GetCounterHistory.HistoryEntry> ->
+                                            // Берём расход из первой записи (последний месяц)
+                                            lastMonthConsumption = history.firstOrNull()?.consumption
+                                        }
+                                    }
+
+                                    // Создаём UI модель
+                                    uiMeters.add(
+                                        MeterUiModel(
+                                            id = "${account.id}_${meter.id}",
+                                            accountId = account.id,
+                                            type = meter.type,
+                                            serialNumber = meter.serialNumber,
+                                            lastValue = meter.lastValue,
+                                            lastSubmissionDate = meter.lastSubmissionDate,
+                                            lastMonthConsumption = lastMonthConsumption // ✅ НОВОЕ
+                                        )
+                                    )
+                                }
+
                                 allMeters.addAll(uiMeters)
                                 addresses[account.id] = loadResult.address
 

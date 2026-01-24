@@ -85,10 +85,65 @@ interface LoadMeters {
         val type: String,
         val serialNumber: String,
         val lastValue: Int?,
-        val lastUpdateTimestamp: Long?,
         val lastSubmissionDate: String?,
         val apiCounterId: Int
     )
+}
+
+/**
+ * Провайдер поддерживает валидацию показаний перед отправкой
+ */
+interface ValidateReading {
+    /**
+     * Получить минимально допустимое показание для счётчика
+     * (обычно это показание предыдущего месяца)
+     */
+    suspend fun getMinimumAllowedValue(
+        counterId: String,
+        accountNumber: String,
+        regionId: String?,
+        cacheData: Any? = null
+    ): Result<Int?>
+}
+
+// app/src/main/java/ru/dr/meterreadings/domain/connector/ProviderConnector.kt
+
+/**
+ * Провайдер поддерживает получение истории показаний
+ */
+interface GetCounterHistory {
+    /**
+     * История одного показания за месяц
+     */
+    data class HistoryEntry(
+        /** Месяц (1-12) */
+        val month: Int,
+
+        /** Год (2025, 2026...) */
+        val year: Int,
+
+        /** Показание на конец месяца */
+        val value: Int,
+
+        /** Расход за месяц (разница) */
+        val consumption: Int
+    )
+
+    /**
+     * Получить историю показаний счётчика
+     *
+     * @param counterId ID счётчика в API провайдера
+     * @param accountNumber Номер лицевого счёта
+     * @param regionId ID региона (если требуется)
+     * @param cacheData Кешированные данные для оптимизации
+     * @return Result со списком истории (от новых к старым)
+     */
+    suspend fun getCounterHistory(
+        counterId: String,
+        accountNumber: String,
+        regionId: String? = null,
+        cacheData: Any? = null
+    ): Result<List<HistoryEntry>>
 }
 
 // ============================================

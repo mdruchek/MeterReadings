@@ -17,6 +17,8 @@ data class MeterUiModel(
     val serialNumber: String,
     /** Последнее переданное показание (с сайта) */
     val lastValue: Int?,
-    /** Дата последней передачи показаний (timestamp в миллисекундах) */
-    val lastUpdateDate: Long?
+    /** Дата последней передачи показаний с api */
+    val lastSubmissionDate: String?,
+    /** объём потребления за последний месяц */
+    val lastMonthConsumption: Int? = null
 )

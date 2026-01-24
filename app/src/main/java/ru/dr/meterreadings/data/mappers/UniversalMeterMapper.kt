@@ -23,7 +23,7 @@ object UniversalMeterMapper {
             type = meterInfo.type,
             serialNumber = meterInfo.serialNumber,
             lastValue = meterInfo.lastValue,
-            lastUpdateDate = meterInfo.lastUpdateTimestamp
+            lastSubmissionDate = meterInfo.lastSubmissionDate
         )
     }
 

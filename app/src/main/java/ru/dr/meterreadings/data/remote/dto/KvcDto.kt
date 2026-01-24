@@ -219,7 +219,7 @@ data class KvcCounterDto(
     @SerialName("c_val_lst04_check")
     val cValLst04Check: String,
 
-    /** Дата начала действия счётчика */
+    /** Дата последней передачи */
     @SerialName("dat_b")
     val datB: String,
 
@@ -347,6 +347,49 @@ data class KvcTransitDaysDto(
     }
 }
 
+/**
+ * История показаний счётчика КВЦ
+ *
+ * Возвращается из GetCtrList (история по одному счётчику)
+ */
+@Serializable
+data class KvcCounterHistoryDto(
+    /** ID записи истории */
+    @SerialName("id")
+    val id: Int,
+
+    /** ID счётчика */
+    @SerialName("id_cnt")
+    val idCnt: Int,
+
+    /** Предыдущее показание */
+    @SerialName("val_pr")
+    val valPr: Double,
+
+    /** Последнее показание */
+    @SerialName("val_lst")
+    val valLst: Double,
+
+    /** Дата начала периода */
+    @SerialName("dat_b")
+    val datB: String, // "2025-11-01T00:00:00"
+
+    /** Рассчитано автоматически? */
+    @SerialName("is_calc")
+    val isCalc: Boolean,
+
+    /** Разница показаний (расход за период) */
+    @SerialName("diff")
+    val diff: Double,
+
+    /** Тип счётчика */
+    @SerialName("type_ctr")
+    val typeCtr: String,
+
+    /** Описание услуги */
+    @SerialName("description")
+    val description: String
+)
 
 // ========================================
 // REQUEST DTO - Тела запросов к API
@@ -376,7 +419,10 @@ data class GetCntListRequest(
     val servDb: KvcLocationDto,
 
     @SerialName("lc")
-    val lc: String
+    val lc: String,
+
+    @SerialName("idCnt")
+    val idCnt: Int? = null
 )
 
 /**
@@ -449,5 +495,20 @@ data class GetCtrDaysRequest(
 
     @SerialName("lc")
     val lc: String
+)
+
+/**
+ * Запрос GetCtrList - получение истории показаний счётчика
+ */
+@Serializable
+data class GetCtrListRequest(
+    @SerialName("servDb")
+    val servDb: KvcLocationDto,
+
+    @SerialName("lc")
+    val lc: String,
+
+    @SerialName("idCnt")
+    val idCnt: Int
 )
 

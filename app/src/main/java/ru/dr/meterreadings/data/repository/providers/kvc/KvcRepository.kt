@@ -12,9 +12,11 @@ import ru.dr.meterreadings.data.remote.dto.CounterForInsertDto
 import ru.dr.meterreadings.data.remote.dto.GetAbonentInfoRequest
 import ru.dr.meterreadings.data.remote.dto.GetCntListRequest
 import ru.dr.meterreadings.data.remote.dto.GetCtrDaysRequest
+import ru.dr.meterreadings.data.remote.dto.GetCtrListRequest
 import ru.dr.meterreadings.data.remote.dto.InsertCtrRequest
 import ru.dr.meterreadings.data.remote.dto.KvcAbonentInfoDto
 import ru.dr.meterreadings.data.remote.dto.KvcCounterDto
+import ru.dr.meterreadings.data.remote.dto.KvcCounterHistoryDto
 import ru.dr.meterreadings.data.remote.dto.KvcLocationDto
 import ru.dr.meterreadings.data.remote.dto.KvcRegionDto
 import ru.dr.meterreadings.data.remote.dto.KvcTransitDaysDto
@@ -232,6 +234,55 @@ class KvcRepository @Inject constructor(
             Result.success(transitDays)
         } catch (e: Exception) {
             println("❌ [KvcRepository] Ошибка получения разрешённых дней: ${e.message}")
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Получить историю показаний счётчика КВЦ
+     *
+     * Возвращает список всех переданных показаний по счётчику за последние месяцы.
+     * Полезно для:
+     * - Проверки минимально допустимого показания
+     * - Отображения расхода за прошлый месяц
+     * - Истории передачи
+     *
+     * @param location Конфигурация БД провайдера
+     * @param accountNumber Номер лицевого счёта
+     * @param counterId ID счётчика (idCnt)
+     * @return Result со списком истории (отсортирован от новых к старым)
+     *
+     * API: POST /GetCtrList
+     * Body: { servDb: {...}, lc: "...", idCnt: 58946 }
+     */
+    suspend fun getCounterHistory(
+        location: KvcLocationDto,
+        accountNumber: String,
+        counterId: Int
+    ): Result<List<KvcCounterHistoryDto>> {
+        return try {
+            println("🔍 [KvcRepository] Получаем историю показаний: idCnt=$counterId")
+
+            val requestBody = GetCtrListRequest(
+                servDb = location,
+                lc = accountNumber,
+                idCnt = counterId
+            )
+
+            val response = httpClient.post(
+                urlString = "$BASE_URL/GetCtrList"
+            ) {
+                contentType(ContentType.Application.Json)
+                setBody(requestBody)
+            }
+
+            val history = response.body<List<KvcCounterHistoryDto>>()
+            println("✅ [KvcRepository] Получено записей истории: ${history.size}")
+
+            Result.success(history)
+        } catch (e: Exception) {
+            println("❌ [KvcRepository] Ошибка получения истории: ${e.message}")
             e.printStackTrace()
             Result.failure(e)
         }
