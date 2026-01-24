@@ -12,12 +12,14 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.focusable
 import androidx.navigation.NavHostController
 import androidx.hilt.navigation.compose.hiltViewModel
 import ru.dr.meterreadings.viewmodels.ProfileDetailViewModel
@@ -34,6 +36,8 @@ fun ProfileDetailScreen(
     navController: NavHostController,
     viewModel: ProfileDetailViewModel = hiltViewModel()
 ) {
+    // ✅ НОВОЕ: FocusRequester для невидимого элемента
+    val dummyFocusRequester = remember { FocusRequester() }
     var showMenu by remember { mutableStateOf(false) }
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var accountToDelete by remember { mutableStateOf<AccountDomainModel?>(null) }
@@ -154,6 +158,13 @@ fun ProfileDetailScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
+        // ✅ НОВОЕ: Невидимый элемент для перехвата фокуса
+        Box(
+            modifier = Modifier
+                .size(0.dp)
+                .focusRequester(dummyFocusRequester)
+                .focusable()
+        )
 
         // ============================================
         // ЕСЛИ НЕТ АККАУНТОВ - ПОКАЗЫВАЕМ PLACEHOLDER
@@ -268,16 +279,30 @@ fun ProfileDetailScreen(
                             items = accountMeters,
                             key = { it.id }
                         ) { meter ->
+                            // ✅ ИСПРАВЛЕНО: Добавляем counterHistories как ключ для пересчёта
+                            val counterHistories by viewModel.counterHistories.collectAsState()
+
+                            val minimumValue by produceState<Int?>(
+                                initialValue = null,
+                                key1 = meter.id,
+                                key2 = counterHistories[meter.id] // ✅ Триггер: обновляется при загрузке истории
+                            ) {
+                                value = viewModel.getMinimumValueForMeter(meter.id)
+                            }
+
                             MeterReadingInput(
                                 meter = meter,
                                 onSubmit = { value ->
                                     viewModel.submitReading(meter, value)
+                                    // ✅ НОВОЕ: Переводим фокус на невидимый элемент
+                                    dummyFocusRequester.requestFocus()
+                                    println("🔓 [ProfileDetailScreen] Фокус переведён на невидимый элемент")
                                 },
-                                isSubmitting = submittingMeters.contains(meter.id)
+                                isSubmitting = submittingMeters.contains(meter.id),
+                                minimumValue = minimumValue
                             )
                         }
                     } else if (!isLoading) {
-                        // Placeholder если нет счётчиков
                         item(key = "empty_${account.id}") {
                             EmptyMetersPlaceholder()
                         }
@@ -317,24 +342,41 @@ fun ProfileDetailScreen(
                         )
                     }
 
+                    // Счётчики аккаунта
                     if (accountMeters.isNotEmpty()) {
                         items(
                             items = accountMeters,
                             key = { it.id }
                         ) { meter ->
+                            // ✅ ИСПРАВЛЕНО: Добавляем counterHistories как ключ для пересчёта
+                            val counterHistories by viewModel.counterHistories.collectAsState()
+
+                            val minimumValue by produceState<Int?>(
+                                initialValue = null,
+                                key1 = meter.id,
+                                key2 = counterHistories[meter.id] // ✅ Триггер: обновляется при загрузке истории
+                            ) {
+                                value = viewModel.getMinimumValueForMeter(meter.id)
+                            }
+
                             MeterReadingInput(
                                 meter = meter,
                                 onSubmit = { value ->
                                     viewModel.submitReading(meter, value)
+                                    // ✅ НОВОЕ: Переводим фокус на невидимый элемент
+                                    dummyFocusRequester.requestFocus()
+                                    println("🔓 [ProfileDetailScreen] Фокус переведён на невидимый элемент")
                                 },
-                                isSubmitting = submittingMeters.contains(meter.id)
+                                isSubmitting = submittingMeters.contains(meter.id),
+                                minimumValue = minimumValue
                             )
                         }
                     } else if (!isLoading) {
-                        item(key = "empty_noaddr_${account.id}") {
+                        item(key = "empty_${account.id}") {
                             EmptyMetersPlaceholder()
                         }
                     }
+
 
                     item(key = "spacer_noaddr_${account.id}") {
                         Spacer(modifier = Modifier.height(8.dp))

@@ -219,7 +219,7 @@ data class KvcCounterDto(
     @SerialName("c_val_lst04_check")
     val cValLst04Check: String,
 
-    /** Дата последней передачи */
+    /** период последней передачи, важен только месяц и год, поэтому остальное (день и время) по нулям */
     @SerialName("dat_b")
     val datB: String,
 
@@ -362,15 +362,15 @@ data class KvcCounterHistoryDto(
     @SerialName("id_cnt")
     val idCnt: Int,
 
-    /** Предыдущее показание */
+    /** Предыдущее показание данного периода */
     @SerialName("val_pr")
     val valPr: Double,
 
-    /** Последнее показание */
+    /** Показание переданное в данный период */
     @SerialName("val_lst")
     val valLst: Double,
 
-    /** Дата начала периода */
+    /** период передачи показаний, важен только год и месяц, поэтому остальное - нули */
     @SerialName("dat_b")
     val datB: String, // "2025-11-01T00:00:00"
 

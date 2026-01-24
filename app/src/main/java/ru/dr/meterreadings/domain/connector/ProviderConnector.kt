@@ -106,8 +106,6 @@ interface ValidateReading {
     ): Result<Int?>
 }
 
-// app/src/main/java/ru/dr/meterreadings/domain/connector/ProviderConnector.kt
-
 /**
  * Провайдер поддерживает получение истории показаний
  */

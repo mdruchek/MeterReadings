@@ -244,9 +244,29 @@ class KvcConnector @Inject constructor(
         }
     }
 
-
     /**
-     * Получить минимально допустимое показание
+     * Получить минимально допустимое показание для валидации (КВЦ)
+     *
+     * Логика для КВЦ:
+     * 1. Загружаем историю показаний через kvcRepository.getCounterHistory()
+     * 2. Берём первую запись (последний период передачи)
+     * 3. Определяем текущий месяц и год
+     * 4. Сравниваем текущий месяц с месяцем из datB первой записи:
+     *    - Если совпадают (показания за текущий месяц уже передавали):
+     *      → Минимум = valPr (предыдущее показание данного периода)
+     *    - Если не совпадают (еще не передавали в текущем месяце):
+     *      → Минимум = valLst (показание переданное в данный период)
+     *
+     * Примечание:
+     * - История возвращается НЕ преобразованной в HistoryEntry
+     * - Работаем напрямую с List<KvcCounterHistoryDto>
+     * - Если истории нет — возвращаем null (валидации не будет)
+     *
+     * @param counterId API ID счётчика (idCnt)
+     * @param accountNumber Номер лицевого счёта
+     * @param regionId ID региона (обязательно для КВЦ)
+     * @param cacheData Кеш с location для оптимизации запросов
+     * @return Result с минимальным значением или null
      */
     override suspend fun getMinimumAllowedValue(
         counterId: String,
@@ -255,43 +275,94 @@ class KvcConnector @Inject constructor(
         cacheData: Any?
     ): Result<Int?> {
         return try {
-            @Suppress("UNCHECKED_CAST")
-            val cache = cacheData as? Map<String, Any>
-            @Suppress("UNCHECKED_CAST")
-            val kvcCounters = cache?.get("counters") as? List<KvcCounterDto>
+            println("🔍 [KvcConnector] Получаем минимальное значение для счётчика $counterId")
 
-            if (kvcCounters != null) {
-                val counter = kvcCounters.firstOrNull { it.idCnt.toString() == counterId }
-                if (counter != null) {
-                    val minValue = parseValueAsInt(counter.cValLstCheck)
-                    return Result.success(minValue)
+            // ШАГ 1: Получаем location из кеша или загружаем
+            @Suppress("UNCHECKED_CAST")
+            val cache = cacheData as? Map<*, *>
+            val location = cache?.get("location") as? KvcLocationDto
+
+            val actualLocation = if (location != null) {
+                println("✅ [KvcConnector] Используем location из кеша")
+                location
+            } else {
+                println("⚠️ [KvcConnector] Location не найден в кеше, загружаем...")
+                val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
+                    "Для КВЦ необходимо указать регион"
                 }
+
+                val locations = kvcRepository.getLocationsForRegion(regionIdInt)
+                    .getOrElse { return Result.failure(it) }
+
+                val abonentInfo = kvcRepository.getAbonentInfo(
+                    locations = locations,
+                    accountNumber = accountNumber,
+                    target = 0
+                ).getOrElse { return Result.failure(it) }
+
+                abonentInfo.location
             }
 
-            val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
-                "Для КВЦ необходимо указать регион"
-            }
-
-            val locations = kvcRepository.getLocationsForRegion(regionIdInt)
-                .getOrElse { return Result.failure(it) }
-
-            val abonentInfo = kvcRepository.getAbonentInfo(
-                locations = locations,
+            // ШАГ 2: Загружаем СЫРУЮ историю (KvcCounterHistoryDto)
+            val historyResult = kvcRepository.getCounterHistory(
+                location = actualLocation,
                 accountNumber = accountNumber,
-                target = 0
-            ).getOrElse { return Result.failure(it) }
+                counterId = counterId.toInt()
+            )
 
-            val counters = kvcRepository.getCounters(
-                location = abonentInfo.location,
-                accountNumber = accountNumber
-            ).getOrElse { return Result.failure(it) }
+            val history: List<KvcCounterHistoryDto> = historyResult.getOrElse {
+                println("❌ [KvcConnector] Не удалось загрузить историю: ${it.message}")
+                return Result.failure(it)
+            }
 
-            val counter = counters.firstOrNull { it.idCnt.toString() == counterId }
-                ?: return Result.failure(Exception("Счётчик не найден"))
+            // ШАГ 3: Проверяем, есть ли записи в истории
+            if (history.isEmpty()) {
+                println("⚠️ [KvcConnector] История пуста — валидации не будет")
+                return Result.success(null)
+            }
 
-            val minValue = parseValueAsInt(counter.cValLstCheck)
+            // ШАГ 4: Берём первую запись (последний период передачи)
+            val firstEntry = history.first()
+
+            // ШАГ 5: Парсим дату из datB
+            val datePart = firstEntry.datB.substringBefore("T") // "2026-01-01T00:00:00" → "2026-01-01"
+            val parts = datePart.split("-")
+
+            if (parts.size != 3) {
+                println("❌ [KvcConnector] Неверный формат даты: ${firstEntry.datB}")
+                return Result.failure(Exception("Неверный формат даты в истории"))
+            }
+
+            val entryYear = parts[0].toInt()
+            val entryMonth = parts[1].toInt()
+
+            // ШАГ 6: Определяем текущий месяц и год
+            val now = java.util.Calendar.getInstance()
+            val currentYear = now.get(java.util.Calendar.YEAR)
+            val currentMonth = now.get(java.util.Calendar.MONTH) + 1 // Calendar.MONTH: 0-11
+
+            // ШАГ 7: Логика выбора минимума
+            val minValue = if (currentYear == entryYear && currentMonth == entryMonth) {
+                // Совпадает: показания за текущий месяц уже передавали
+                // Берём valPr (предыдущее показание данного периода)
+                val value = firstEntry.valPr.toInt()
+                println("✅ [KvcConnector] Текущий месяц = период истории ($currentMonth/$currentYear)")
+                println("   Минимум = valPr = $value (предыдущее показание периода)")
+                value
+            } else {
+                // Не совпадает: еще не передавали в текущем месяце
+                // Берём valLst (показание переданное в данный период)
+                val value = firstEntry.valLst.toInt()
+                println("✅ [KvcConnector] Текущий месяц ($currentMonth/$currentYear) ≠ период истории ($entryMonth/$entryYear)")
+                println("   Минимум = valLst = $value (показание переданное в период)")
+                value
+            }
+
             Result.success(minValue)
+
         } catch (e: Exception) {
+            println("❌ [KvcConnector] Ошибка получения минимума: ${e.message}")
+            e.printStackTrace()
             Result.failure(e)
         }
     }

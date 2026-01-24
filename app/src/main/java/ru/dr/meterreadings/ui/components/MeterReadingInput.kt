@@ -28,12 +28,14 @@ import java.util.*
  * @param meter - данные счётчика
  * @param onSubmit - callback при нажатии кнопки отправки
  * @param isSubmitting - флаг отправки (показывает прогресс)
+ * @param minimumValue - минимально допустимое значение (из ValidateReading, если история загружена)
  */
 @Composable
 fun MeterReadingInput(
     meter: MeterUiModel,
     onSubmit: (Int) -> Unit,
     isSubmitting: Boolean = false,
+    minimumValue: Int? = null, // ✅ НОВОЕ: минимум из валидатора
     modifier: Modifier = Modifier
 ) {
     // Состояние поля ввода
@@ -49,20 +51,24 @@ fun MeterReadingInput(
                 if (parts.size == 3) {
                     val year = parts[0].toInt()
                     val month = parts[1].toInt()
+
                     val now = Calendar.getInstance()
                     val currentMonth = now.get(Calendar.MONTH) + 1
                     val currentYear = now.get(Calendar.YEAR)
 
-                    // Добавим отладочный вывод
-                    println("DEBUG: dateString=$dateString, year=$year, month=$month, currentYear=$currentYear, currentMonth=$currentMonth")
+                    // ✅ ЛОГ: Проверка даты
+                    println("🔍 [MeterReadingInput] Проверка даты для ${meter.type} №${meter.serialNumber}:")
+                    println("    dateString=$dateString, year=$year, month=$month")
+                    println("    currentYear=$currentYear, currentMonth=$currentMonth")
+                    println("    result=${year == currentYear && month == currentMonth}")
 
                     year == currentYear && month == currentMonth
                 } else {
-                    println("DEBUG: parts.size != 3, parts=$parts")
+                    println("❌ [MeterReadingInput] Неверный формат даты: parts.size=${parts.size}, parts=$parts")
                     false
                 }
             } catch (e: Exception) {
-                println("DEBUG: Exception parsing date: ${e.message}")
+                println("❌ [MeterReadingInput] Ошибка парсинга даты: ${e.message}")
                 false
             }
         } ?: false
@@ -78,28 +84,42 @@ fun MeterReadingInput(
                 val date = inputFormat.parse(dateString)
                 date?.let { outputFormat.format(it) } ?: ""
             } catch (e: Exception) {
-                println("DEBUG: Exception formatting date: ${e.message}")
+                println("❌ [MeterReadingInput] Ошибка форматирования даты: ${e.message}")
                 ""
             }
         } ?: ""
     }
 
     val inputInt = remember(inputValue) { inputValue.toIntOrNull() }
-    val hasError = remember(inputInt, meter.lastValue) {
-        inputInt?.let { newVal ->
-            meter.lastValue?.let { last -> newVal <= last } ?: false
-        } ?: false
+
+    // ✅ НОВОЕ: Валидация на основе minimumValue (только если он передан)
+    val hasError = remember(inputInt, minimumValue) {
+        if (minimumValue != null && inputInt != null) {
+            val error = inputInt < minimumValue
+            println("🔍 [MeterReadingInput] Валидация ${meter.type}: input=$inputInt, min=$minimumValue, hasError=$error")
+            error
+        } else {
+            if (minimumValue == null) {
+                println("⚠️ [MeterReadingInput] Минимум для ${meter.type} не загружен, валидация пропущена")
+            }
+            false
+        }
     }
 
     val canSubmit = remember(inputInt, hasError, isSubmitting) {
         inputInt != null && !hasError && !isSubmitting
     }
 
+    // ✅ ЛОГ: Изменение minimumValue
+    LaunchedEffect(minimumValue) {
+        println("📊 [MeterReadingInput] Минимум для ${meter.type} №${meter.serialNumber}: ${minimumValue ?: "не определён"}")
+    }
+
     // Цвета карточки: ЗЕЛЁНЫЙ если передано, РОЗОВЫЙ если НЕ передано
     val containerColor = if (wasSubmittedThisMonth) {
-        MaterialTheme.colorScheme.primaryContainer  // Светло-зелёный для переданных
+        MaterialTheme.colorScheme.primaryContainer
     } else {
-        MaterialTheme.colorScheme.errorContainer  // Розовый для НЕ переданных
+        MaterialTheme.colorScheme.errorContainer
     }
 
     val onContainerColor = if (wasSubmittedThisMonth) {
@@ -113,7 +133,6 @@ fun MeterReadingInput(
         colors = CardDefaults.cardColors(containerColor = containerColor)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-
             // ВЕРХНЯЯ СТРОКА
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -127,11 +146,13 @@ fun MeterReadingInput(
                         style = MaterialTheme.typography.titleSmall,
                         color = onContainerColor
                     )
+
                     Text(
                         text = "№ ${meter.serialNumber}",
                         style = MaterialTheme.typography.bodySmall,
                         color = onContainerColor.copy(alpha = 0.7f)
                     )
+
                     // Статус с иконкой
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -143,6 +164,7 @@ fun MeterReadingInput(
                             tint = if (wasSubmittedThisMonth) Color(0xFF00C853) else Color(0xFFD50000),
                             modifier = Modifier.size(16.dp)
                         )
+
                         Text(
                             text = if (wasSubmittedThisMonth) "передано" else "не передано",
                             style = MaterialTheme.typography.bodySmall,
@@ -156,11 +178,12 @@ fun MeterReadingInput(
                     // Дата
                     if (formattedMonthYear.isNotEmpty()) {
                         Text(
-                            text = formattedMonthYear.replaceFirstChar { it.uppercase() }, // Первая буква заглавная
+                            text = formattedMonthYear.replaceFirstChar { it.uppercase() },
                             style = MaterialTheme.typography.bodySmall,
                             color = onContainerColor.copy(alpha = 0.7f)
                         )
                     }
+
                     // Предыдущие показания
                     meter.lastValue?.let { last ->
                         Text(
@@ -169,7 +192,8 @@ fun MeterReadingInput(
                             color = onContainerColor.copy(alpha = 0.7f)
                         )
                     }
-                    // Расход
+
+                    // Расход (только если история загружена)
                     meter.lastMonthConsumption?.let { consumption ->
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
@@ -196,20 +220,36 @@ fun MeterReadingInput(
                     placeholder = { Text("Введите") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
-                    modifier = Modifier.weight(1f),  // Убрали .height(56.dp)
+                    modifier = Modifier.weight(1f),
                     isError = hasError,
                     enabled = !isSubmitting,
-                    supportingText = if (hasError) {
-                        {
-                            meter.lastValue?.let { last ->
+
+                    // ✅ НОВОЕ: Подсказка на основе minimumValue
+                    supportingText = {
+                        when {
+                            // Есть ошибка валидации
+                            hasError && minimumValue != null -> {
                                 Text(
-                                    "Должно быть больше $last",
+                                    "Должно быть >= $minimumValue",
                                     color = MaterialTheme.colorScheme.error,
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
+
+                            // Нет ошибки, но есть минимум — показываем подсказку
+                            !hasError && minimumValue != null -> {
+                                Text(
+                                    "Минимум: $minimumValue",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+
+                            // Нет минимума — ничего не показываем
+                            else -> null
                         }
-                    } else null,
+                    },
+
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = MaterialTheme.colorScheme.surface,
                         unfocusedContainerColor = MaterialTheme.colorScheme.surface
@@ -219,13 +259,14 @@ fun MeterReadingInput(
                 Button(
                     onClick = {
                         inputInt?.let { value ->
+                            println("📤 [MeterReadingInput] Отправка: ${meter.type} = $value")
                             onSubmit(value)
                             inputValue = ""
                         }
                     },
                     enabled = canSubmit,
                     modifier = Modifier
-                        .height(56.dp)  // Высота только у кнопки
+                        .height(56.dp)
                         .border(
                             width = 2.dp,
                             color = if (canSubmit) Color(0xFF424242) else Color(0xFFBDBDBD),
