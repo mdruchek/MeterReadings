@@ -12,10 +12,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import ru.dr.meterreadings.data.database.DatabaseInitializer  // ✅ ДОБАВИТЬ
+import ru.dr.meterreadings.data.repository.AppSettingsRepository
 import ru.dr.meterreadings.data.repository.ProfileRepository
 import ru.dr.meterreadings.data.repository.ProviderRepository  // ✅ ДОБАВИТЬ
-import ru.dr.meterreadings.workers.MeterReadingNotificationWorker
-import ru.dr.meterreadings.workers.PeriodUpdateWorker
+import ru.dr.meterreadings.workers.WorkerManager
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -31,7 +31,13 @@ class MeterReadingsApplication : Application(), Configuration.Provider {
     lateinit var providerRepository: ProviderRepository  // ✅ INJECT ProviderRepository
 
     @Inject
+    lateinit var appSettingsRepository: AppSettingsRepository
+
+    @Inject
     lateinit var workerFactory: HiltWorkerFactory
+
+    @Inject
+    lateinit var workerManager: WorkerManager  // ✅ ДОБАВИТЬ
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -42,7 +48,9 @@ class MeterReadingsApplication : Application(), Configuration.Provider {
         applicationScope.launch {
             // ✅ ИСПОЛЬЗУЕМ DatabaseInitializer вместо ручной инициализации
             databaseInitializer.initializeProviders()
-            initializeWorkers()
+            workerManager.initializeWorkers()
+
+            println("✅ [Application] Инициализация завершена")
         }
     }
 
@@ -51,66 +59,4 @@ class MeterReadingsApplication : Application(), Configuration.Provider {
             .setWorkerFactory(workerFactory)
             .setMinimumLoggingLevel(android.util.Log.DEBUG)
             .build()
-
-    private suspend fun initializeWorkers() {
-        try {
-            println("⚙️ [Application] Инициализация Workers")
-
-            // ✅ ИСПОЛЬЗУЕМ ProviderRepository вместо ProfileRepository
-            val providers = providerRepository.getAllProviders().first()
-            println("🔍 [Application] Провайдеров в БД: ${providers.size}")
-
-            var shouldSchedulePeriodUpdate = false
-            var shouldScheduleReminders = false
-            var updateIntervalHours = 6
-            var reminderHour = 9
-            var reminderMinute = 0
-
-            for (provider in providers) {
-                println("📋 [Application] Провайдер: ${provider.name}")
-                println("   Автообновление: ${provider.autoUpdateEnabled}")
-                println("   Напоминания: ${provider.reminderEnabled}")
-
-                if (provider.autoUpdateEnabled) {
-                    shouldSchedulePeriodUpdate = true
-                    updateIntervalHours = provider.updateIntervalHours
-                    println("   ✅ Автообновление активно, интервал: $updateIntervalHours ч")
-                }
-
-                if (provider.reminderEnabled) {
-                    shouldScheduleReminders = true
-                    reminderHour = provider.reminderTimeHour
-                    reminderMinute = provider.reminderTimeMinute
-                    println("   ✅ Напоминания активны, время: $reminderHour:$reminderMinute")
-                }
-            }
-
-            if (shouldSchedulePeriodUpdate) {
-                PeriodUpdateWorker.schedule(
-                    context = applicationContext,
-                    intervalHours = updateIntervalHours
-                )
-                println("✅ [Application] PeriodUpdateWorker запланирован (каждые $updateIntervalHours ч)")
-            } else {
-                PeriodUpdateWorker.cancel(applicationContext)
-                println("⏭️ [Application] PeriodUpdateWorker отменён")
-            }
-
-            if (shouldScheduleReminders) {
-                MeterReadingNotificationWorker.schedule(
-                    context = applicationContext,
-                    hour = reminderHour,
-                    minute = reminderMinute
-                )
-                println("✅ [Application] NotificationWorker запланирован (ежедневно в $reminderHour:$reminderMinute)")
-            } else {
-                MeterReadingNotificationWorker.cancel(applicationContext)
-                println("⏭️ [Application] NotificationWorker отменён")
-            }
-
-        } catch (e: Exception) {
-            println("❌ [Application] Ошибка инициализации Workers: ${e.message}")
-            e.printStackTrace()
-        }
-    }
 }

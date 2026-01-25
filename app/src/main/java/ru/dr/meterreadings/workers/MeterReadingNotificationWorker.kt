@@ -44,49 +44,107 @@ class MeterReadingNotificationWorker @AssistedInject constructor(
         return try {
             println("🔔 [NotificationWorker] Проверка напоминаний о передаче показаний")
 
-            // ✅ ИСПОЛЬЗУЕМ Calendar вместо LocalDate
             val calendar = Calendar.getInstance()
+            val currentDay = calendar.get(Calendar.DAY_OF_MONTH)
             val currentMonth = SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(calendar.time)
-            val today = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(calendar.time)
 
-            println("📅 [NotificationWorker] Текущая дата: $today")
+            // ✅ Загружаем глобальные настройки
+            val globalSettings = appSettingsRepository.getSettings().first()
 
-            // Получаем провайдеров, у которых сейчас период передачи
-            val providersInPeriod = providerRepository.getProvidersInTransmissionPeriod()
-            println("🔍 [NotificationWorker] Провайдеров в периоде: ${providersInPeriod.size}")
+            // ============================================
+            // ПРОВЕРКА ГЛОБАЛЬНЫХ ФЛАГОВ
+            // ============================================
 
-            for (provider in providersInPeriod) {
-                // ✅ проверяем три уровня настроек
+            // ❌ Уровень 0: МАСТЕР-флаг уведомлений
+            if (!globalSettings.globalNotificationsEnabled) {
+                println("⏭️ [NotificationWorker] Глобальные уведомления отключены")
+                return Result.success()
+            }
 
-                // 1. Глобальные уведомления (мастер-флаг)
-                val globalSettings = appSettingsRepository.getSettings().first()
-                if (!globalSettings.globalNotificationsEnabled) {
-                    println("⏭️ [NotificationWorker] Глобальные уведомления отключены")
-                    break  // Выходим из цикла — уведомления отключены для всего приложения
+            // ❌ Уровень 1: Глобальные напоминания
+            if (!globalSettings.globalRemindersEnabled) {
+                println("⏭️ [NotificationWorker] Глобальные напоминания отключены")
+                return Result.success()
+            }
+
+            // ✅ Загружаем провайдеров
+            val allProviders = providerRepository.getAllProviders().first()
+
+            // Фильтруем: только с включёнными напоминаниями
+            val providersWithReminders = allProviders.filter { it.reminderEnabled }
+
+            if (providersWithReminders.isEmpty()) {
+                println("⏭️ [NotificationWorker] Нет провайдеров с включёнными напоминаниями")
+                return Result.success()
+            }
+
+            println("🔍 [NotificationWorker] Провайдеров с напоминаниями: ${providersWithReminders.size}")
+
+            // ============================================
+            // ПРОВЕРКА КАЖДОГО ПРОВАЙДЕРА
+            // ============================================
+
+            for (provider in providersWithReminders) {
+                println("🔔 [NotificationWorker] Проверяем провайдера: ${provider.name}")
+
+                // ============================================
+                // ПРОВЕРКА ПЕРИОДА (зависит от режима)
+                // ============================================
+
+                val isInReminderPeriod = when (globalSettings.reminderPeriodMode) {
+                    "AUTO" -> {
+                        // ✅ Автоматический режим: грузим период с сайта
+                        val startDay = provider.transmissionPeriodStartDay
+                        val endDay = provider.transmissionPeriodEndDay
+
+                        if (startDay == null || endDay == null) {
+                            println("⚠️ [NotificationWorker] Период не загружен для ${provider.name}")
+                            false
+                        } else {
+                            // Вычисляем день начала напоминаний
+                            val reminderStartDay = maxOf(1, startDay - globalSettings.reminderDaysBeforeStart)
+
+                            val inPeriod = currentDay >= reminderStartDay && currentDay <= endDay
+                            println("   Период передачи: $startDay-$endDay")
+                            println("   Напоминания с: $reminderStartDay (за ${globalSettings.reminderDaysBeforeStart} дней)")
+                            println("   Текущий день: $currentDay → ${if (inPeriod) "В ПЕРИОДЕ" else "ВНЕ ПЕРИОДА"}")
+                            inPeriod
+                        }
+                    }
+
+                    "MANUAL" -> {
+                        // ✅ Ручной режим: используем customStartDay
+                        val customStart = provider.reminderCustomStartDay
+                        val endDay = provider.transmissionPeriodEndDay
+
+                        if (customStart == null || endDay == null) {
+                            println("⚠️ [NotificationWorker] Кастомный день не настроен для ${provider.name}")
+                            false
+                        } else {
+                            val inPeriod = currentDay >= customStart && currentDay <= endDay
+                            println("   Напоминания с: $customStart (ручная настройка)")
+                            println("   Период передачи до: $endDay")
+                            println("   Текущий день: $currentDay → ${if (inPeriod) "В ПЕРИОДЕ" else "ВНЕ ПЕРИОДА"}")
+                            inPeriod
+                        }
+                    }
+
+                    else -> {
+                        println("❌ [NotificationWorker] Неизвестный режим: ${globalSettings.reminderPeriodMode}")
+                        false
+                    }
                 }
 
-                // 2. Уведомления провайдеров (общий флаг)
-                if (!globalSettings.providerNotificationsEnabled) {
-                    println("⏭️ [NotificationWorker] Уведомления провайдеров отключены")
-                    break
-                }
-
-                // 3. Напоминания для конкретного провайдера
-                if (!provider.reminderEnabled) {
-                    println("⏭️ [NotificationWorker] Провайдер ${provider.name}: напоминания отключены")
-                    continue  // Пропускаем этого провайдера
-                }
-
-                // 4. Уведомления для конкретного провайдера
-                if (!provider.notificationsEnabled) {
-                    println("⏭️ [NotificationWorker] Провайдер ${provider.name}: уведомления отключены")
+                if (!isInReminderPeriod) {
+                    println("⏭️ [NotificationWorker] ${provider.name}: вне периода напоминаний")
                     continue
                 }
 
-                println("🔔 [NotificationWorker] Проверяем провайдера: ${provider.name}")
+                // ============================================
+                // ПРОВЕРКА НЕПЕРЕДАННЫХ СЧЁТЧИКОВ
+                // ============================================
 
                 try {
-                    // Находим все аккаунты этого провайдера
                     val accounts = accountRepository.getAllAccounts().first()
                         .filter { it.providerId == provider.id }
 
@@ -95,41 +153,47 @@ class MeterReadingNotificationWorker @AssistedInject constructor(
                         continue
                     }
 
-                    println("📋 [NotificationWorker] Аккаунтов: ${accounts.size}")
-
-                    // Проверяем счётчики по всем аккаунтам
                     var unsubmittedCount = 0
 
                     for (account in accounts) {
                         val meters = meterDao.getAllByAccountId(account.id).first()
-                        println("  Аккаунт ${account.accountNumber}: счётчиков ${meters.size}")
 
                         for (meter in meters) {
-                            // Проверяем, передавался ли счётчик в этом месяце
                             val lastSubmissionMonth = meter.lastSubmissionDate?.let {
                                 parseMonthFromDate(it)
                             }
 
                             if (lastSubmissionMonth != currentMonth) {
                                 unsubmittedCount++
-                                println("  ⚠️ Счётчик ${meter.type} №${meter.serialNumber}: не передан в $currentMonth")
                             }
                         }
                     }
 
-                    // Если есть непереданные - показываем уведомление
+                    // ============================================
+                    // ПОКАЗ НАПОМИНАНИЯ (если есть непереданные)
+                    // ============================================
+
                     if (unsubmittedCount > 0) {
-                        // ✅ Финальная проверка перед показом уведомления
-                        if (provider.notificationsEnabled) {
-                            notificationHelper.showReadingReminderNotification(
-                                providerName = provider.name,
-                                meterCount = unsubmittedCount,
-                                endDay = provider.transmissionPeriodEndDay ?: 0
-                            )
-                            println("✅ [NotificationWorker] Уведомление показано: ${provider.name}, счётчиков: $unsubmittedCount")
-                        } else {
-                            println("⏭️ [NotificationWorker] Уведомления отключены для ${provider.name}, пропускаем")
+                        // ✅ Проверка ТОЛЬКО уведомлений провайдера (уровень 2 и 3)
+                        // globalNotificationsEnabled УЖЕ проверен в начале метода!
+
+                        if (!globalSettings.providerNotificationsEnabled) {
+                            println("⏭️ [NotificationWorker] Уведомления провайдеров отключены глобально")
+                            continue
                         }
+
+                        if (!provider.notificationsEnabled) {
+                            println("⏭️ [NotificationWorker] Уведомления отключены для ${provider.name}")
+                            continue
+                        }
+
+                        // ✅ ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ → ПОКАЗЫВАЕМ НАПОМИНАНИЕ
+                        notificationHelper.showReadingReminderNotification(
+                            providerName = provider.name,
+                            meterCount = unsubmittedCount,
+                            endDay = provider.transmissionPeriodEndDay ?: 0
+                        )
+                        println("✅ [NotificationWorker] Напоминание показано: ${provider.name}, счётчиков: $unsubmittedCount")
                     } else {
                         println("✅ [NotificationWorker] Все показания переданы для ${provider.name}")
                     }
@@ -150,6 +214,7 @@ class MeterReadingNotificationWorker @AssistedInject constructor(
         }
     }
 
+
     /**
      * Парсинг месяца из даты формата "dd.MM.yyyy"
      *
@@ -158,10 +223,22 @@ class MeterReadingNotificationWorker @AssistedInject constructor(
      */
     private fun parseMonthFromDate(date: String): String? {
         return try {
-            val inputFormat = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
-            val outputFormat = SimpleDateFormat("yyyy-MM", Locale.getDefault())
-            val parsedDate = inputFormat.parse(date)
-            parsedDate?.let { outputFormat.format(it) }
+            // ✅ ИСПРАВЛЕНО: Поддержка обоих форматов
+            val parsedDate = when {
+                date.contains("T") -> {
+                    // ISO формат: "2026-01-15T10:30:00"
+                    SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault()).parse(date)
+                }
+                date.contains(".") -> {
+                    // Русский формат: "15.01.2026"
+                    SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).parse(date)
+                }
+                else -> null
+            }
+
+            parsedDate?.let {
+                SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(it)
+            }
         } catch (e: Exception) {
             println("⚠️ [NotificationWorker] Ошибка парсинга месяца из '$date': ${e.message}")
             null

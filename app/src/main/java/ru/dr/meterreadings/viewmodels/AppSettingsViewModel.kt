@@ -13,12 +13,14 @@ import ru.dr.meterreadings.data.repository.ProviderRepository
 import ru.dr.meterreadings.models.domain.AppSettingsDomainModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
 import ru.dr.meterreadings.models.ui.toUiModel
+import ru.dr.meterreadings.workers.WorkerManager
 import javax.inject.Inject
 
 @HiltViewModel
 class AppSettingsViewModel @Inject constructor(
     private val appSettingsRepository: AppSettingsRepository,
-    private val providerRepository: ProviderRepository
+    private val providerRepository: ProviderRepository,
+    private val workerManager: WorkerManager
 ) : ViewModel() {
 
     // ============================================
@@ -94,6 +96,7 @@ class AppSettingsViewModel @Inject constructor(
             try {
                 appSettingsRepository.updateGlobalNotifications(enabled)
                 println("✅ [ViewModel] Глобальные уведомления: $enabled")
+                workerManager.initializeWorkers()
             } catch (e: Exception) {
                 val errorMsg = "Ошибка обновления глобальных уведомлений: ${e.message}"
                 _error.value = errorMsg
@@ -112,6 +115,7 @@ class AppSettingsViewModel @Inject constructor(
             try {
                 appSettingsRepository.updateProviderNotifications(enabled)
                 println("✅ [ViewModel] Уведомления провайдеров (глобально): $enabled")
+                workerManager.initializeWorkers()
             } catch (e: Exception) {
                 val errorMsg = "Ошибка обновления уведомлений провайдеров: ${e.message}"
                 _error.value = errorMsg
@@ -133,6 +137,7 @@ class AppSettingsViewModel @Inject constructor(
             try {
                 providerRepository.updateProviderNotifications(providerId, enabled)
                 println("✅ [ViewModel] Уведомления провайдера $providerId: $enabled")
+                workerManager.initializeWorkers()
             } catch (e: Exception) {
                 val errorMsg = "Ошибка обновления уведомлений провайдера: ${e.message}"
                 _error.value = errorMsg
@@ -156,6 +161,7 @@ class AppSettingsViewModel @Inject constructor(
             try {
                 appSettingsRepository.updateReminderTime(hour, minute)
                 println("✅ [ViewModel] Время напоминания: $hour:$minute")
+                workerManager.initializeWorkers()
             } catch (e: Exception) {
                 val errorMsg = "Ошибка обновления времени напоминания: ${e.message}"
                 _error.value = errorMsg
@@ -178,6 +184,7 @@ class AppSettingsViewModel @Inject constructor(
             try {
                 appSettingsRepository.updateGlobalReminders(enabled)
                 println("✅ [ViewModel] Глобальные напоминания: $enabled")
+                workerManager.initializeWorkers()
             } catch (e: Exception) {
                 val errorMsg = "Ошибка обновления глобальных напоминаний: ${e.message}"
                 _error.value = errorMsg
@@ -200,6 +207,7 @@ class AppSettingsViewModel @Inject constructor(
             try {
                 appSettingsRepository.updateReminderPeriodMode(mode)
                 println("✅ [ViewModel] Режим периода напоминаний: $mode")
+                workerManager.initializeWorkers()
             } catch (e: Exception) {
                 val errorMsg = "Ошибка обновления режима периода: ${e.message}"
                 _error.value = errorMsg
@@ -223,6 +231,7 @@ class AppSettingsViewModel @Inject constructor(
             try {
                 appSettingsRepository.updateReminderDaysBeforeStart(days)
                 println("✅ [ViewModel] Дни до начала периода: $days")
+                workerManager.initializeWorkers()
             } catch (e: Exception) {
                 val errorMsg = "Ошибка обновления дней до начала периода: ${e.message}"
                 _error.value = errorMsg
@@ -246,6 +255,7 @@ class AppSettingsViewModel @Inject constructor(
             try {
                 providerRepository.updateProviderReminderDay(providerId, day)
                 println("✅ [ViewModel] День напоминания провайдера $providerId: $day")
+                workerManager.initializeWorkers()
             } catch (e: Exception) {
                 val errorMsg = "Ошибка обновления дня напоминания: ${e.message}"
                 _error.value = errorMsg

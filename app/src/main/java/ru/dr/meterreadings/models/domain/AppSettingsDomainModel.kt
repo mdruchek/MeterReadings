@@ -9,7 +9,7 @@ import ru.dr.meterreadings.data.local.entities.AppSettingsEntity
  * затем они переносятся в Entity при конвертации .toEntity().
  */
 data class AppSettingsDomainModel(
-    val id: Long = 1L,
+    val id: Long =1L,
 
     // ============================================
     // УВЕДОМЛЕНИЯ
@@ -65,6 +65,12 @@ data class AppSettingsDomainModel(
     val reminderDaysBeforeStart: Int = 0,
 
     // ============================================
+    // АВТООБНОВЛЕНИЕ (ГЛОБАЛЬНОЕ!)
+    // ============================================
+    val autoUpdateIntervalHours: Int = 1,           // ✅ ДОБАВИТЬ!
+    val autoUpdateStartDay: Int = 1,                // ✅ ДОБАВИТЬ!
+
+    // ============================================
     // СЛУЖЕБНЫЕ ПОЛЯ
     // ============================================
 
@@ -89,6 +95,8 @@ fun AppSettingsDomainModel.toEntity(): AppSettingsEntity {
         reminderTimeMinute = reminderTimeMinute,
         reminderPeriodMode = reminderPeriodMode,
         reminderDaysBeforeStart = reminderDaysBeforeStart,
+        autoUpdateIntervalHours = autoUpdateIntervalHours,
+        autoUpdateStartDay =  autoUpdateStartDay,
         createdAt = createdAt,
         updatedAt = updatedAt
     )

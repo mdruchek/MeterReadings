@@ -44,9 +44,6 @@ class DatabaseInitializer @Inject constructor(
                     // АВТООБНОВЛЕНИЕ
                     // ============================================
                     autoUpdateEnabled = true,
-                    updateStartDay = 1,
-                    updateIntervalHours = 6,
-                    lastAutoUpdate = null,              // ✨ НОВОЕ
 
                     // ============================================
                     // УВЕДОМЛЕНИЯ
@@ -57,11 +54,7 @@ class DatabaseInitializer @Inject constructor(
                     // НАПОМИНАНИЯ
                     // ============================================
                     reminderEnabled = true,
-                    reminderTimeHour = 9,
-                    reminderTimeMinute = 0,
-                    reminderPeriodMode = "AUTO",        // ✨ НОВОЕ
                     reminderCustomStartDay = null,      // ✨ НОВОЕ
-                    reminderCustomEndDay = null         // ✨ НОВОЕ
                 )
             )
 

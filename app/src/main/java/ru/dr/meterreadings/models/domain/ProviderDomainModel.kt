@@ -20,9 +20,6 @@ data class ProviderDomainModel(
     // НАСТРОЙКИ АВТООБНОВЛЕНИЯ
     // ============================================
     val autoUpdateEnabled: Boolean = false,
-    val updateStartDay: Int = 1,
-    val updateIntervalHours: Int = 1,
-    val lastAutoUpdate: Long? = null,
 
     // ============================================
     // НАСТРОЙКИ УВЕДОМЛЕНИЙ
@@ -33,11 +30,7 @@ data class ProviderDomainModel(
     // НАСТРОЙКИ НАПОМИНАНИЙ
     // ============================================
     val reminderEnabled: Boolean = false,
-    val reminderTimeHour: Int = 9,
-    val reminderTimeMinute: Int = 0,
-    val reminderPeriodMode: String = "AUTO",
-    val reminderCustomStartDay: Int? = null,
-    val reminderCustomEndDay: Int? = null
+    val reminderCustomStartDay: Int? = null
 )
 
 enum class AuthType {

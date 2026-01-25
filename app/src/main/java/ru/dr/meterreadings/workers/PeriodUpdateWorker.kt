@@ -9,6 +9,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
 import ru.dr.meterreadings.data.repository.AccountRepository
+import ru.dr.meterreadings.data.repository.AppSettingsRepository
 import ru.dr.meterreadings.data.repository.ProviderRepository
 import ru.dr.meterreadings.domain.connector.GetTransmissionPeriod
 import ru.dr.meterreadings.domain.connector.ProviderConnectorFactory
@@ -21,16 +22,15 @@ import java.util.concurrent.TimeUnit
  * Worker для автоматического обновления периода передачи показаний
  *
  * Логика работы:
- * 1. Проверяет всех провайдеров с включённым autoUpdateEnabled
- * 2. Для каждого провайдера:
- *    - Проверяет, наступил ли день начала обновления (updateStartDay)
+ * 1. Проверяет глобальный день начала обновления (autoUpdateStartDay)
+ * 2. Для каждого провайдера с включённым autoUpdateEnabled:
  *    - Проверяет, не загружен ли уже период для текущего месяца
  *    - Загружает первый аккаунт этого провайдера
  *    - Загружает период через коннектор провайдера
  *    - Сохраняет в БД
  * 3. Показывает уведомление об обновлении (если включено)
  *
- * Запускается периодически с интервалом из настроек провайдера
+ * Запускается периодически с интервалом из глобальных настроек
  */
 @HiltWorker
 class PeriodUpdateWorker @AssistedInject constructor(
@@ -38,6 +38,7 @@ class PeriodUpdateWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val providerRepository: ProviderRepository,
     private val accountRepository: AccountRepository,
+    private val appSettingsRepository: AppSettingsRepository,
     private val connectorFactory: ProviderConnectorFactory,
     private val notificationHelper: NotificationHelper
 ) : CoroutineWorker(appContext, workerParams) {
@@ -52,9 +53,17 @@ class PeriodUpdateWorker @AssistedInject constructor(
 
             println("📅 [PeriodUpdateWorker] Текущая дата: $today (день: $todayDay, месяц: $currentMonth)")
 
-            // Получаем всех провайдеров
+            // ✅ Загружаем глобальные настройки
+            val globalSettings = appSettingsRepository.getSettings().first()
             val providers = providerRepository.getAllProviders().first()
+
             println("🔍 [PeriodUpdateWorker] Провайдеров в БД: ${providers.size}")
+
+            // ✅ Проверяем, наступил ли день начала обновления (ГЛОБАЛЬНО)
+            if (todayDay < globalSettings.autoUpdateStartDay) {
+                println("⏭️ [PeriodUpdateWorker] День обновления ещё не наступил (старт: ${globalSettings.autoUpdateStartDay})")
+                return Result.success()
+            }
 
             var updatedCount = 0
 
@@ -62,12 +71,6 @@ class PeriodUpdateWorker @AssistedInject constructor(
                 // Пропускаем, если автообновление отключено
                 if (!provider.autoUpdateEnabled) {
                     println("⏭️ [PeriodUpdateWorker] Провайдер ${provider.name}: автообновление отключено")
-                    continue
-                }
-
-                // Пропускаем, если ещё не наступил день начала обновления
-                if (todayDay < provider.updateStartDay) {
-                    println("⏭️ [PeriodUpdateWorker] Провайдер ${provider.name}: день обновления ещё не наступил (старт: ${provider.updateStartDay})")
                     continue
                 }
 
@@ -80,7 +83,7 @@ class PeriodUpdateWorker @AssistedInject constructor(
                 println("🔄 [PeriodUpdateWorker] Провайдер ${provider.name}: начинаем обновление...")
 
                 try {
-                    // Загружаем любой аккаунт этого провайдера
+                    // ✅ Загружаем любой аккаунт этого провайдера
                     val accounts = accountRepository.getAllAccounts().first()
                     val account = accounts.firstOrNull { it.providerId == provider.id }
 
@@ -91,7 +94,7 @@ class PeriodUpdateWorker @AssistedInject constructor(
 
                     println("📋 [PeriodUpdateWorker] Используем аккаунт: ${account.accountNumber}")
 
-                    // Получаем коннектор для провайдера
+                    // ✅ Получаем коннектор для провайдера
                     val connector = connectorFactory.getConnector(provider.id)
 
                     // Проверяем, поддерживает ли провайдер получение периода
@@ -114,20 +117,29 @@ class PeriodUpdateWorker @AssistedInject constructor(
                             updatedCount++
                             println("✅ [PeriodUpdateWorker] Период обновлён для ${provider.name}: ${period.startDay}-${period.endDay}")
 
-                            // Показываем уведомление
-//                            if (provider.updateNotificationsEnabled) {
-//                                val newProvider = profileRepository.getProviderById(provider.id).first()
-//                                if (newProvider != null) {
-//                                    notificationHelper.showPeriodUpdatedNotification(
-//                                        providerName = provider.name,
-//                                        startDay = newProvider.transmissionPeriodStartDay ?: 0,
-//                                        endDay = newProvider.transmissionPeriodEndDay ?: 0
-//                                    )
-//                                }
-//                            }
+                            // ✅ Показываем уведомление (если разрешено)
+                            try {
+                                if (globalSettings.globalNotificationsEnabled &&
+                                    globalSettings.providerNotificationsEnabled &&
+                                    provider.notificationsEnabled) {
+
+                                    notificationHelper.showPeriodUpdatedNotification(
+                                        providerName = provider.name,
+                                        startDay = period.startDay,
+                                        endDay = period.endDay
+                                    )
+                                    println("✅ [PeriodUpdateWorker] Уведомление показано для ${provider.name}")
+                                } else {
+                                    println("⏭️ [PeriodUpdateWorker] Уведомления отключены для ${provider.name}")
+                                }
+                            } catch (e: Exception) {
+                                println("⚠️ [PeriodUpdateWorker] Ошибка показа уведомления: ${e.message}")
+                            }
+
                         } else {
-                            println("❌ [PeriodUpdateWorker] Ошибка: ${periodResult.exceptionOrNull()?.message}")
+                            println("❌ [PeriodUpdateWorker] Ошибка получения периода: ${periodResult.exceptionOrNull()?.message}")
                         }
+
                     } else {
                         println("⏭️ [PeriodUpdateWorker] Провайдер ${provider.name} не поддерживает автообновление периода")
                     }
@@ -139,7 +151,6 @@ class PeriodUpdateWorker @AssistedInject constructor(
             }
 
             println("✅ [PeriodUpdateWorker] Обновлено провайдеров: $updatedCount")
-
             Result.success()
 
         } catch (e: Exception) {
@@ -160,7 +171,7 @@ class PeriodUpdateWorker @AssistedInject constructor(
          */
         fun schedule(context: Context, intervalHours: Int) {
             val constraints = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)  // Требуется интернет
+                .setRequiredNetworkType(NetworkType.CONNECTED) // Требуется интернет
                 .build()
 
             val workRequest = PeriodicWorkRequestBuilder<PeriodUpdateWorker>(
@@ -178,7 +189,7 @@ class PeriodUpdateWorker @AssistedInject constructor(
             WorkManager.getInstance(context)
                 .enqueueUniquePeriodicWork(
                     WORK_NAME,
-                    ExistingPeriodicWorkPolicy.REPLACE,  // Заменяем старую задачу
+                    ExistingPeriodicWorkPolicy.REPLACE, // Заменяем старую задачу
                     workRequest
                 )
 

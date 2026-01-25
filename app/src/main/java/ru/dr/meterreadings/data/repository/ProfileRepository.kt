@@ -213,15 +213,9 @@ class ProfileRepository @Inject constructor(
             if (provider != null) {
                 val updated = provider.copy(
                     autoUpdateEnabled = autoUpdateEnabled,
-                    updateStartDay = updateStartDay,
-                    updateIntervalHours = updateIntervalHours,
                     notificationsEnabled = updateNotificationsEnabled,
                     reminderEnabled = reminderEnabled,
-                    reminderTimeHour = reminderTimeHour,
-                    reminderTimeMinute = reminderTimeMinute,
-                    reminderPeriodMode = reminderPeriodMode,
                     reminderCustomStartDay = reminderCustomStartDay,
-                    reminderCustomEndDay = reminderCustomEndDay,
                     updatedAt = System.currentTimeMillis()
                 )
 

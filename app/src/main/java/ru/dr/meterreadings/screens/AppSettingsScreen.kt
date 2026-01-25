@@ -152,93 +152,130 @@ fun AppSettingsScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-// ⏰ ГРУППА: НАПОМИНАНИЯ
-            SettingsGroup(title = "⏰ Напоминания") {
-                if (settings == null) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp)
-                    )
-                } else {
-                    // Глобальный переключатель напоминаний
-                    GlobalRemindersSwitch(
-                        enabled = settings!!.globalRemindersEnabled,
-                        isLoading = isLoading,
-                        onCheckedChange = { enabled ->
-                            viewModel.updateGlobalReminders(enabled)
-                        }
-                    )
+            // ⏰ ГРУППА: НАПОМИНАНИЯ (показывается только если globalNotificationsEnabled = true)
+            if (settings?.globalNotificationsEnabled == true) {
+                Spacer(modifier = Modifier.height(32.dp))
 
-                    // Показываем настройки только если напоминания включены
-                    if (settings!!.globalRemindersEnabled) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        HorizontalDivider()
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // ⏰ Время напоминания (глобально)
-                        ReminderTimeSetting(
-                            hour = settings!!.reminderTimeHour,
-                            minute = settings!!.reminderTimeMinute,
+                SettingsGroup(title = "⏰ Напоминания") {
+                    if (settings == null) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp)
+                        )
+                    } else {
+                        // Глобальный переключатель напоминаний
+                        GlobalRemindersSwitch(
+                            enabled = settings!!.globalRemindersEnabled,
                             isLoading = isLoading,
-                            onTimeChange = { hour, minute ->
-                                viewModel.updateReminderTime(hour, minute)
+                            onCheckedChange = { enabled ->
+                                viewModel.updateGlobalReminders(enabled)
                             }
                         )
 
-                        Spacer(modifier = Modifier.height(16.dp))
-                        HorizontalDivider()
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // 📅 Режим периода (AUTO/MANUAL)
-                        ReminderPeriodModeSelector(
-                            mode = settings!!.reminderPeriodMode,
-                            isLoading = isLoading,
-                            onModeChange = { mode ->
-                                viewModel.updateReminderPeriodMode(mode)
-                            }
-                        )
-
-                        // Если режим AUTO, показываем настройку дней
-                        if (settings!!.reminderPeriodMode == "AUTO") {
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            ReminderDaysBeforeSlider(
-                                days = settings!!.reminderDaysBeforeStart,
-                                isLoading = isLoading,
-                                onDaysChange = { days ->
-                                    viewModel.updateReminderDaysBeforeStart(days)
-                                }
-                            )
-
-                            // Показываем список провайдеров с рассчитанными днями (только просмотр)
+                        // Показываем настройки только если напоминания включены
+                        if (settings!!.globalRemindersEnabled) {
                             Spacer(modifier = Modifier.height(16.dp))
                             HorizontalDivider()
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            ProvidersRemindersAutoList(
-                                providers = providers,
-                                daysBeforeStart = settings!!.reminderDaysBeforeStart
+                            // ⏰ Время напоминания (глобально)
+                            ReminderTimeSetting(
+                                hour = settings!!.reminderTimeHour,
+                                minute = settings!!.reminderTimeMinute,
+                                isLoading = isLoading,
+                                onTimeChange = { hour, minute ->
+                                    viewModel.updateReminderTime(hour, minute)
+                                }
                             )
-                        }
 
-
-                        // Если режим MANUAL, показываем список провайдеров
-                        if (settings!!.reminderPeriodMode == "MANUAL") {
                             Spacer(modifier = Modifier.height(16.dp))
                             HorizontalDivider()
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            ProvidersRemindersList(
-                                providers = providers,
+                            // 📅 Режим периода (AUTO/MANUAL)
+                            ReminderPeriodModeSelector(
+                                mode = settings!!.reminderPeriodMode,
                                 isLoading = isLoading,
-                                onProviderReminderDayChange = { providerId, day ->
-                                    viewModel.updateProviderReminderDay(providerId, day)
+                                onModeChange = { mode ->
+                                    viewModel.updateReminderPeriodMode(mode)
                                 }
+                            )
+
+                            // Если режим AUTO, показываем настройку дней
+                            if (settings!!.reminderPeriodMode == "AUTO") {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                ReminderDaysBeforeSlider(
+                                    days = settings!!.reminderDaysBeforeStart,
+                                    isLoading = isLoading,
+                                    onDaysChange = { days ->
+                                        viewModel.updateReminderDaysBeforeStart(days)
+                                    }
+                                )
+
+                                // Показываем список провайдеров с рассчитанными днями (только просмотр)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                HorizontalDivider()
+                                Spacer(modifier = Modifier.height(16.dp))
+                                ProvidersRemindersAutoList(
+                                    providers = providers,
+                                    daysBeforeStart = settings!!.reminderDaysBeforeStart
+                                )
+                            }
+
+                            // Если режим MANUAL, показываем список провайдеров
+                            if (settings!!.reminderPeriodMode == "MANUAL") {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                HorizontalDivider()
+                                Spacer(modifier = Modifier.height(16.dp))
+                                ProvidersRemindersList(
+                                    providers = providers,
+                                    isLoading = isLoading,
+                                    onProviderReminderDayChange = { providerId, day ->
+                                        viewModel.updateProviderReminderDay(providerId, day)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                // ✅ НОВОЕ: Показываем подсказку, если глобальные уведомления отключены
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(24.dp)
+                        )
+
+                        Column {
+                            Text(
+                                text = "Напоминания недоступны",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Включите глобальные уведомления, чтобы настроить напоминания о передаче показаний",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
                         }
                     }
                 }
             }
-
         }
     }
 }

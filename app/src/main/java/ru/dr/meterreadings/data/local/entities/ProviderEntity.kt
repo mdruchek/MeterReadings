@@ -37,9 +37,6 @@ data class ProviderEntity(
     // НАСТРОЙКИ АВТООБНОВЛЕНИЯ
     // ============================================
     val autoUpdateEnabled: Boolean,
-    val updateStartDay: Int,
-    val updateIntervalHours: Int,
-    val lastAutoUpdate: Long?,
 
     // ============================================
     // НАСТРОЙКИ УВЕДОМЛЕНИЙ
@@ -50,11 +47,7 @@ data class ProviderEntity(
     // НАСТРОЙКИ НАПОМИНАНИЙ
     // ============================================
     val reminderEnabled: Boolean,
-    val reminderTimeHour: Int,
-    val reminderTimeMinute: Int,
-    val reminderPeriodMode: String,
     val reminderCustomStartDay: Int?,
-    val reminderCustomEndDay: Int?,
 
     // ============================================
     // ТЕХНИЧЕСКИЕ ПОЛЯ
@@ -87,18 +80,11 @@ fun ProviderEntity.toDomain(): ProviderDomainModel {
 
         // Автообновление
         autoUpdateEnabled = autoUpdateEnabled,
-        updateStartDay = updateStartDay,
-        updateIntervalHours = updateIntervalHours,
-        lastAutoUpdate = lastAutoUpdate,
         notificationsEnabled = notificationsEnabled,
 
         // Напоминания
         reminderEnabled = reminderEnabled,
-        reminderTimeHour = reminderTimeHour,
-        reminderTimeMinute = reminderTimeMinute,
-        reminderPeriodMode = reminderPeriodMode,
         reminderCustomStartDay = reminderCustomStartDay,
-        reminderCustomEndDay = reminderCustomEndDay
     )
 }
 
@@ -125,18 +111,11 @@ fun ProviderDomainModel.toEntity(
 
         // Автообновление
         autoUpdateEnabled = autoUpdateEnabled,
-        updateStartDay = updateStartDay,
-        updateIntervalHours = updateIntervalHours,
-        lastAutoUpdate = lastAutoUpdate,
         notificationsEnabled = notificationsEnabled,
 
         // Напоминания
         reminderEnabled = reminderEnabled,
-        reminderTimeHour = reminderTimeHour,
-        reminderTimeMinute = reminderTimeMinute,
-        reminderPeriodMode = reminderPeriodMode,
         reminderCustomStartDay = reminderCustomStartDay,
-        reminderCustomEndDay = reminderCustomEndDay,
         createdAt = createdAt,
         updatedAt = updatedAt
     )
