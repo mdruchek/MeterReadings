@@ -15,7 +15,9 @@ import ru.dr.meterreadings.models.domain.AppSettingsDomainModel
  */
 data class AppSettingsUiModel(
     val globalNotificationsEnabled: Boolean,
-    val providerNotificationsEnabled: Boolean
+    val providerNotificationsEnabled: Boolean,
+    val loggingEnabled: Boolean,
+    val logRetentionDays: Int
 ) {
     /**
      * Текст состояния глобальных уведомлений для UI.
@@ -49,7 +51,9 @@ data class AppSettingsUiModel(
 fun AppSettingsDomainModel.toUi(): AppSettingsUiModel {
     return AppSettingsUiModel(
         globalNotificationsEnabled = globalNotificationsEnabled,
-        providerNotificationsEnabled = providerNotificationsEnabled
+        providerNotificationsEnabled = providerNotificationsEnabled,
+        loggingEnabled = loggingEnabled,
+        logRetentionDays = logRetentionDays,
     )
 }
 
@@ -59,6 +63,8 @@ fun AppSettingsDomainModel.toUi(): AppSettingsUiModel {
 fun AppSettingsUiModel.toDomain(): AppSettingsDomainModel {
     return AppSettingsDomainModel(
         globalNotificationsEnabled = globalNotificationsEnabled,
-        providerNotificationsEnabled = providerNotificationsEnabled
+        providerNotificationsEnabled = providerNotificationsEnabled,
+        loggingEnabled = loggingEnabled,
+        logRetentionDays = logRetentionDays,
     )
 }

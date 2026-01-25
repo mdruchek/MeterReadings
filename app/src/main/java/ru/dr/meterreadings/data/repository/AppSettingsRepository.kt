@@ -220,6 +220,21 @@ class AppSettingsRepository @Inject constructor(
         }
     }
 
+    suspend fun updateLoggingEnabled(enabled: Boolean) {
+        appSettingsDao.updateLoggingEnabled(
+            enabled = enabled,
+            updatedAt = System.currentTimeMillis()
+        )
+        println("✅ [AppSettingsRepository] Логирование обновлено: $enabled")
+    }
+
+    suspend fun updateLogRetentionDays(days: Int) {
+        appSettingsDao.updateLogRetentionDays(
+            days = days,
+            updatedAt = System.currentTimeMillis()
+        )
+        println("✅ [AppSettingsRepository] Период хранения логов обновлён: $days дней")
+    }
 
     // ========================================
     // ИНИЦИАЛИЗАЦИЯ

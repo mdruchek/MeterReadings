@@ -3,6 +3,8 @@ package ru.dr.meterreadings.screens
 
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import android.app.Activity
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,10 +13,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,7 +27,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight  // ✅ ДОБАВЬ ЭТУ СТРОКУ
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import ru.dr.meterreadings.models.ui.AppThemeMode
@@ -44,6 +50,7 @@ fun AppSettingsScreen(
     viewModel: AppSettingsViewModel = hiltViewModel()
 ) {
     // Собираем состояние из ViewModel
+    val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val providers by viewModel.providers.collectAsState()
@@ -273,6 +280,202 @@ fun AppSettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
                         }
+                    }
+                }
+            }
+
+            // ✅ ДОБАВЛЯЕМ СЕКЦИЮ "ЛОГИ"
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    // Заголовок
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "📋 Логи приложения",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Switch(
+                            checked = settings?.loggingEnabled ?: true,
+                            onCheckedChange = { viewModel.updateLoggingEnabled(it) }
+                        )
+                    }
+
+                    if (settings?.loggingEnabled == true) {
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Информация о логах
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Размер: ${viewModel.logFileManager.getLogFileSize()}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "Записей: ${viewModel.logFileManager.getLogLineCount()}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Период автоматической очистки
+                        Text(
+                            text = "Автоматическая очистка",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Выбор периода
+                        var showRetentionDialog by remember { mutableStateOf(false) }
+
+                        OutlinedCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showRetentionDialog = true }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Хранить логи",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        text = when (settings?.logRetentionDays ?: 7) {
+                                            0 -> "Бессрочно"
+                                            1 -> "1 день"
+                                            else -> "${settings?.logRetentionDays ?: 7} дней"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // Диалог выбора периода
+                        if (showRetentionDialog) {
+                            AlertDialog(
+                                onDismissRequest = { showRetentionDialog = false },
+                                title = { Text("Период хранения логов") },
+                                text = {
+                                    Column {
+                                        val options = listOf(
+                                            0 to "Бессрочно (не удалять)",
+                                            1 to "1 день",
+                                            3 to "3 дня",
+                                            7 to "7 дней (неделя)",
+                                            14 to "14 дней (2 недели)",
+                                            30 to "30 дней (месяц)"
+                                        )
+
+                                        options.forEach { (days, label) ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        viewModel.updateLogRetentionDays(days)
+                                                        showRetentionDialog = false
+                                                    }
+                                                    .padding(vertical = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                RadioButton(
+                                                    selected = settings?.logRetentionDays == days,
+                                                    onClick = {
+                                                        viewModel.updateLogRetentionDays(days)
+                                                        showRetentionDialog = false
+                                                    }
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(label)
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = {
+                                    TextButton(onClick = { showRetentionDialog = false }) {
+                                        Text("Закрыть")
+                                    }
+                                }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Кнопки управления
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Кнопка "Отправить"
+                            Button(
+                                onClick = {
+                                    viewModel.logFileManager.shareLogFile(context as Activity)
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text("Отправить")
+                            }
+
+                            // Кнопка "Очистить"
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.logFileManager.clearLogs()
+                                    Toast.makeText(context, "Логи очищены", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text("Очистить")
+                            }
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Логирование отключено",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }

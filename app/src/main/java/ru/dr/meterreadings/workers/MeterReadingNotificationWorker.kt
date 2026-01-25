@@ -12,6 +12,7 @@ import ru.dr.meterreadings.data.local.dao.MeterDao
 import ru.dr.meterreadings.data.repository.AccountRepository
 import ru.dr.meterreadings.data.repository.AppSettingsRepository
 import ru.dr.meterreadings.data.repository.ProviderRepository
+import ru.dr.meterreadings.data.util.LogFileManager
 import ru.dr.meterreadings.notifications.NotificationHelper
 import java.text.SimpleDateFormat
 import java.util.*
@@ -37,10 +38,12 @@ class MeterReadingNotificationWorker @AssistedInject constructor(
     private val accountRepository: AccountRepository,
     private val meterDao: MeterDao,
     private val notificationHelper: NotificationHelper,
-    private val appSettingsRepository: AppSettingsRepository
+    private val appSettingsRepository: AppSettingsRepository,
+    private val logFileManager: LogFileManager
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
+        logFileManager.log(TAG, "🔔 Начинаем проверку напоминаний")
         return try {
             println("🔔 [NotificationWorker] Проверка напоминаний о передаче показаний")
 
@@ -246,6 +249,7 @@ class MeterReadingNotificationWorker @AssistedInject constructor(
     }
 
     companion object {
+        private const val TAG = "NotificationWorker"
         private const val WORK_NAME = "meter_reading_reminder_work"
 
         /**

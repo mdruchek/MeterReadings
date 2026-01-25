@@ -3,6 +3,7 @@ package ru.dr.meterreadings.data.local.entities
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import ru.dr.meterreadings.models.domain.AppSettingsDomainModel
+import kotlin.Boolean
 import kotlin.Int
 
 /**
@@ -60,6 +61,12 @@ data class AppSettingsEntity(
     val reminderDaysBeforeStart: Int,
 
     // ============================================
+    // ЛОГИ
+    // ============================================
+    val loggingEnabled: Boolean,
+    val logRetentionDays: Int,
+
+    // ============================================
     // АВТООБНОВЛЕНИЕ (ГЛОБАЛЬНОЕ!)
     // ============================================
     val autoUpdateIntervalHours: Int,
@@ -86,8 +93,11 @@ fun AppSettingsEntity.toDomain(): AppSettingsDomainModel {
         reminderTimeMinute = reminderTimeMinute,
         reminderPeriodMode = reminderPeriodMode,
         reminderDaysBeforeStart = reminderDaysBeforeStart,
+        loggingEnabled = loggingEnabled,
+        logRetentionDays = logRetentionDays,
         autoUpdateIntervalHours = autoUpdateIntervalHours,
         autoUpdateStartDay = autoUpdateStartDay,
+
         createdAt = createdAt,
         updatedAt = updatedAt
     )

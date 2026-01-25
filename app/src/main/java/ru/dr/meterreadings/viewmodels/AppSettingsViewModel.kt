@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import ru.dr.meterreadings.data.repository.AppSettingsRepository
 import ru.dr.meterreadings.data.repository.ProviderRepository
+import ru.dr.meterreadings.data.util.LogFileManager
 import ru.dr.meterreadings.models.domain.AppSettingsDomainModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
 import ru.dr.meterreadings.models.ui.toUiModel
@@ -20,7 +21,8 @@ import javax.inject.Inject
 class AppSettingsViewModel @Inject constructor(
     private val appSettingsRepository: AppSettingsRepository,
     private val providerRepository: ProviderRepository,
-    private val workerManager: WorkerManager
+    private val workerManager: WorkerManager,
+    val logFileManager: LogFileManager
 ) : ViewModel() {
 
     // ============================================
@@ -266,6 +268,36 @@ class AppSettingsViewModel @Inject constructor(
         }
     }
 
+    fun updateLoggingEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                appSettingsRepository.updateLoggingEnabled(enabled)
+                logFileManager.setLoggingEnabled(enabled)
+
+                if (enabled) {
+                    logFileManager.log("Settings", "📝 Логирование включено")
+                }
+            } catch (e: Exception) {
+                logFileManager.logError("AppSettingsViewModel", "Ошибка обновления настроек логирования", e)
+            }
+        }
+    }
+
+    fun updateLogRetentionDays(days: Int) {
+        viewModelScope.launch {
+            try {
+                appSettingsRepository.updateLogRetentionDays(days)
+                logFileManager.log("Settings", "🗑️ Период хранения логов изменён на $days дней")
+
+                // Сразу очищаем старые логи
+                if (days > 0) {
+                    logFileManager.clearOldLogs(days)
+                }
+            } catch (e: Exception) {
+                logFileManager.logError("AppSettingsViewModel", "Ошибка обновления периода хранения логов", e)
+            }
+        }
+    }
 
     /**
      * Очистить ошибку (вызывается после показа Snackbar).

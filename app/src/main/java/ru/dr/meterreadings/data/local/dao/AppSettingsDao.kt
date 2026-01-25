@@ -98,4 +98,12 @@ interface AppSettingsDao {
     // Изменить количество дней до начала периода
     @Query("UPDATE app_settings SET reminderDaysBeforeStart = :days, updatedAt = :updatedAt WHERE id = 1")
     suspend fun updateReminderDaysBeforeStart(days: Int, updatedAt: Long)
+
+    // Включить/выключить логирование
+    @Query("UPDATE app_settings SET loggingEnabled = :enabled, updatedAt = :updatedAt WHERE id = 1")
+    suspend fun updateLoggingEnabled(enabled: Boolean, updatedAt: Long)
+
+    // Изменить период хранения логов
+    @Query("UPDATE app_settings SET logRetentionDays = :days, updatedAt = :updatedAt WHERE id = 1")
+    suspend fun updateLogRetentionDays(days: Int, updatedAt: Long)
 }

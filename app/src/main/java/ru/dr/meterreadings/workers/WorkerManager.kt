@@ -7,6 +7,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import ru.dr.meterreadings.data.repository.AppSettingsRepository
 import ru.dr.meterreadings.data.repository.ProviderRepository
+import ru.dr.meterreadings.data.util.LogFileManager
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -14,7 +15,8 @@ import javax.inject.Singleton
 class WorkerManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val appSettingsRepository: AppSettingsRepository,
-    private val providerRepository: ProviderRepository
+    private val providerRepository: ProviderRepository,
+    private val logFileManager: LogFileManager
 ) {
 
     /**
@@ -28,6 +30,8 @@ class WorkerManager @Inject constructor(
             val providers = providerRepository.getAllProviders().first()
 
             println("🔍 [WorkerManager] Провайдеров в БД: ${providers.size}")
+
+            logFileManager.log("WorkerManager", "Провайдеров в БД: ${providers.size}")
 
             // ============================================
             // 1. АВТООБНОВЛЕНИЕ ПЕРИОДОВ

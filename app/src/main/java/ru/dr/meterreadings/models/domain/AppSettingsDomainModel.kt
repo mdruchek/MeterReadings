@@ -71,6 +71,12 @@ data class AppSettingsDomainModel(
     val autoUpdateStartDay: Int = 1,                // ✅ ДОБАВИТЬ!
 
     // ============================================
+    // ЛОГИ
+    // ============================================
+    val loggingEnabled: Boolean = true,
+    val logRetentionDays: Int = 7,
+
+    // ============================================
     // СЛУЖЕБНЫЕ ПОЛЯ
     // ============================================
 
@@ -97,6 +103,8 @@ fun AppSettingsDomainModel.toEntity(): AppSettingsEntity {
         reminderDaysBeforeStart = reminderDaysBeforeStart,
         autoUpdateIntervalHours = autoUpdateIntervalHours,
         autoUpdateStartDay =  autoUpdateStartDay,
+        loggingEnabled = loggingEnabled,
+        logRetentionDays = logRetentionDays,
         createdAt = createdAt,
         updatedAt = updatedAt
     )
