@@ -1,15 +1,15 @@
 package ru.dr.meterreadings.data.repository.providers.kvc
 
 import ru.dr.meterreadings.data.mappers.KvcPeriodMapper
-import ru.dr.meterreadings.data.remote.dto.KvcCounterDto
-import ru.dr.meterreadings.data.remote.dto.KvcCounterHistoryDto
-import ru.dr.meterreadings.data.remote.dto.KvcLocationDto
-import ru.dr.meterreadings.domain.connector.GetCounterHistory
+import ru.dr.meterreadings.data.remote.dto.kvc.KvcMetersDto
+import ru.dr.meterreadings.data.remote.dto.kvc.KvcMeterHistoryDto
+import ru.dr.meterreadings.data.remote.dto.kvc.KvcLocationDto
+import ru.dr.meterreadings.domain.connector.GetMeterHistory
 import ru.dr.meterreadings.domain.connector.GetTransmissionPeriod
-import ru.dr.meterreadings.domain.connector.HasRegions
-import ru.dr.meterreadings.domain.connector.LoadMeters
+import ru.dr.meterreadings.domain.connector.GetRegions
+import ru.dr.meterreadings.domain.connector.GetMeters
 import ru.dr.meterreadings.domain.connector.ProviderConnector
-import ru.dr.meterreadings.domain.connector.SearchAccount
+import ru.dr.meterreadings.domain.connector.GetAccounts
 import ru.dr.meterreadings.domain.connector.SubmitReadings
 import ru.dr.meterreadings.domain.connector.ValidateReading
 import ru.dr.meterreadings.domain.constants.ProviderIds
@@ -21,13 +21,13 @@ import kotlin.collections.mapNotNull
 class KvcConnector @Inject constructor(
     private val kvcRepository: KvcRepository
 ) : ProviderConnector,
-    HasRegions,
-    SearchAccount,
+    GetRegions,
+    GetAccounts,
     SubmitReadings,
     GetTransmissionPeriod,
-    LoadMeters,
+    GetMeters,
     ValidateReading,
-    GetCounterHistory {
+    GetMeterHistory {
 
     override val providerId: Long = ProviderIds.KVC
     override val providerName: String = "КВЦ"
@@ -35,14 +35,14 @@ class KvcConnector @Inject constructor(
     /**
      * Получить список регионов КВЦ
      */
-    override suspend fun getRegions(): Result<List<HasRegions.RegionInfo>> {
+    override suspend fun getRegions(): Result<List<GetRegions.RegionInfo>> {
         println("🌐 [KvcConnector] Запрос регионов...")
         val result = kvcRepository.getRegions()
         return result.fold(
             onSuccess = { regions ->
                 println("✅ [KvcConnector] Получено регионов: ${regions.size}")
                 val regionInfoList = regions.map { region ->
-                    HasRegions.RegionInfo(
+                    GetRegions.RegionInfo(
                         id = region.id.toString(),
                         name = region.name
                     )
@@ -57,58 +57,42 @@ class KvcConnector @Inject constructor(
     }
 
     /**
-     * Поиск адреса абонента
+     * получить аккаунт
      */
-    override suspend fun searchAccount(
+    override suspend fun getAccounts(
         accountNumber: String,
         regionId: String?
-    ): Result<String> {
-        println("🔍 [KvcConnector] Поиск ЛС $accountNumber в регионе $regionId")
+    ): Result<List<GetAccounts.AccountInfo>> {
+        println("🔍 [KvcConnector] Получение ЛС $accountNumber в регионе $regionId")
         return try {
             val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
                 "Для КВЦ необходимо указать регион"
             }
 
-            val locationsResult = kvcRepository.getLocationsForRegion(regionIdInt)
-            if (locationsResult.isFailure) {
-                return Result.failure(
-                    locationsResult.exceptionOrNull()
-                        ?: Exception("Не удалось загрузить конфигурации БД")
-                )
-            }
+            val locations = kvcRepository.getLocationsForRegion(regionIdInt)
+                .getOrElse { return Result.failure(it) }
 
-            val locations = locationsResult.getOrThrow()
-
-            val abonentResult = kvcRepository.getAbonentInfo(
+            kvcRepository.getAccount(
                 locations = locations,
                 accountNumber = accountNumber,
                 target = 0
-            )
-
-            abonentResult.fold(
-                onSuccess = { abonentInfo ->
-                    val address = abonentInfo.getFullAddress()
-                    println("✅ [KvcConnector] Адрес найден: $address")
-                    Result.success(address)
-                },
-                onFailure = { error ->
-                    println("❌ [KvcConnector] Ошибка поиска: ${error.message}")
-                    Result.failure(error)
-                }
-            )
+            ).map {
+                listOf(GetAccounts.AccountInfo(accountNumber = accountNumber))
+            }
         } catch (e: Exception) {
             println("❌ [KvcConnector] Ошибка: ${e.message}")
             Result.failure(e)
         }
     }
 
+
     /**
      * Загрузка счётчиков для аккаунта КВЦ
      */
-    override suspend fun loadMeters(
+    override suspend fun getMeters(
         accountNumber: String,
         regionId: String?
-    ): Result<LoadMeters.LoadMetersResult> {
+    ): Result<GetMeters.GetMetersResult> {
         return try {
             val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
                 "Для КВЦ необходимо указать регион"
@@ -121,7 +105,7 @@ class KvcConnector @Inject constructor(
                 .getOrElse { return Result.failure(it) }
 
             // ШАГ 2: Ищем абонента
-            val abonentInfo = kvcRepository.getAbonentInfo(
+            val abonentInfo = kvcRepository.getAccount(
                 locations = locations,
                 accountNumber = accountNumber,
                 target = 0
@@ -130,7 +114,7 @@ class KvcConnector @Inject constructor(
             val address = abonentInfo.getFullAddress()
 
             // ШАГ 3: Получаем счётчики
-            val kvcCounters = kvcRepository.getCounters(
+            val kvcCounters = kvcRepository.getMeters(
                 location = abonentInfo.location,
                 accountNumber = accountNumber
             ).getOrElse { return Result.failure(it) }
@@ -139,7 +123,7 @@ class KvcConnector @Inject constructor(
             val meters = kvcCounters
                 .filter { it.canEdit() }
                 .map { counter ->
-                    LoadMeters.MeterInfo(
+                    GetMeters.MeterInfo(
                         id = counter.idCnt.toString(),
                         type = if (counter.idTtype == "2T") {
                             "${counter.servName.trim()} (${counter.idTtype})"
@@ -156,9 +140,9 @@ class KvcConnector @Inject constructor(
             println("✅ [KvcConnector] Загружено ${meters.size} счётчиков")
 
             Result.success(
-                LoadMeters.LoadMetersResult(
+                GetMeters.GetMetersResult(
                     meters = meters,
-                    address = address,
+                    //address = address,
                     cacheData = mapOf<String, Any>(
                         "location" to abonentInfo.location,
                         "counters" to kvcCounters
@@ -174,12 +158,12 @@ class KvcConnector @Inject constructor(
     /**
      * Получить историю показаний счётчика
      */
-    override suspend fun getCounterHistory(
+    override suspend fun getMeterHistory(
         counterId: String,
         accountNumber: String,
         regionId: String?,
         cacheData: Any?
-    ): Result<List<GetCounterHistory.HistoryEntry>> {
+    ): Result<List<GetMeterHistory.MeterHistory>> {
         return try {
             @Suppress("UNCHECKED_CAST")
             val cache = cacheData as? Map<String, Any>
@@ -195,7 +179,7 @@ class KvcConnector @Inject constructor(
                 val locations = kvcRepository.getLocationsForRegion(regionIdInt)
                     .getOrElse { return Result.failure(it) }
 
-                val abonentInfo = kvcRepository.getAbonentInfo(
+                val abonentInfo = kvcRepository.getAccount(
                     locations = locations,
                     accountNumber = accountNumber,
                     target = 0
@@ -205,14 +189,14 @@ class KvcConnector @Inject constructor(
             }
 
             // ✅ Загружаем историю (это Result!)
-            val historyResult = kvcRepository.getCounterHistory(
+            val historyResult = kvcRepository.getMeterHistory(
                 location = actualLocation,
                 accountNumber = accountNumber,
-                counterId = counterId.toInt()
+                meterId = counterId.toInt()
             )
 
             // ✅ Извлекаем List из Result
-            val history: List<KvcCounterHistoryDto> = historyResult.getOrElse {
+            val history: List<KvcMeterHistoryDto> = historyResult.getOrElse {
                 return Result.failure(it)
             }
 
@@ -224,7 +208,7 @@ class KvcConnector @Inject constructor(
                     if (parts.size == 3) {
                         val year = parts[0].toInt()
                         val month = parts[1].toInt()
-                        GetCounterHistory.HistoryEntry(
+                        GetMeterHistory.MeterHistory(
                             month = month,
                             year = year,
                             value = entry.valLst.toInt(),
@@ -294,7 +278,7 @@ class KvcConnector @Inject constructor(
                 val locations = kvcRepository.getLocationsForRegion(regionIdInt)
                     .getOrElse { return Result.failure(it) }
 
-                val abonentInfo = kvcRepository.getAbonentInfo(
+                val abonentInfo = kvcRepository.getAccount(
                     locations = locations,
                     accountNumber = accountNumber,
                     target = 0
@@ -304,13 +288,13 @@ class KvcConnector @Inject constructor(
             }
 
             // ШАГ 2: Загружаем СЫРУЮ историю (KvcCounterHistoryDto)
-            val historyResult = kvcRepository.getCounterHistory(
+            val historyResult = kvcRepository.getMeterHistory(
                 location = actualLocation,
                 accountNumber = accountNumber,
-                counterId = counterId.toInt()
+                meterId = counterId.toInt()
             )
 
-            val history: List<KvcCounterHistoryDto> = historyResult.getOrElse {
+            val history: List<KvcMeterHistoryDto> = historyResult.getOrElse {
                 println("❌ [KvcConnector] Не удалось загрузить историю: ${it.message}")
                 return Result.failure(it)
             }
@@ -384,13 +368,13 @@ class KvcConnector @Inject constructor(
             @Suppress("UNCHECKED_CAST")
             val cache = cacheData as? Map<String, Any>
             val location: KvcLocationDto
-            val kvcCounters: List<KvcCounterDto>
+            val kvcCounters: List<KvcMetersDto>
 
             if (cache != null && cache.containsKey("location") && cache.containsKey("counters")) {
                 println("✅ [KvcConnector] Используем кеш из ViewModel")
                 location = cache["location"] as KvcLocationDto
                 @Suppress("UNCHECKED_CAST")
-                kvcCounters = cache["counters"] as List<KvcCounterDto>
+                kvcCounters = cache["counters"] as List<KvcMetersDto>
             } else {
                 println("⚠️ [KvcConnector] Кеш пуст, загружаем данные через API")
                 val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
@@ -400,7 +384,7 @@ class KvcConnector @Inject constructor(
                 val locations = kvcRepository.getLocationsForRegion(regionIdInt)
                     .getOrElse { return Result.failure(it) }
 
-                val abonentInfo = kvcRepository.getAbonentInfo(
+                val abonentInfo = kvcRepository.getAccount(
                     locations = locations,
                     accountNumber = accountNumber,
                     target = 0
@@ -408,7 +392,7 @@ class KvcConnector @Inject constructor(
 
                 location = abonentInfo.location
 
-                kvcCounters = kvcRepository.getCounters(
+                kvcCounters = kvcRepository.getMeters(
                     location = location,
                     accountNumber = accountNumber
                 ).getOrElse { return Result.failure(it) }
@@ -449,13 +433,13 @@ class KvcConnector @Inject constructor(
             val locations = kvcRepository.getLocationsForRegion(regionId)
                 .getOrElse { return Result.failure(it) }
 
-            val abonentInfo = kvcRepository.getAbonentInfo(
+            val abonentInfo = kvcRepository.getAccount(
                 locations = locations,
                 accountNumber = accountNumber,
                 target = 0
             ).getOrElse { return Result.failure(it) }
 
-            val period = kvcRepository.getTransitDays(
+            val period = kvcRepository.getTransmissionPeriod(
                 location = abonentInfo.location,
                 accountNumber = accountNumber
             ).getOrElse { return Result.failure(it) }

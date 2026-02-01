@@ -8,18 +8,19 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
-import ru.dr.meterreadings.data.remote.dto.CounterForInsertDto
-import ru.dr.meterreadings.data.remote.dto.GetAbonentInfoRequest
-import ru.dr.meterreadings.data.remote.dto.GetCntListRequest
-import ru.dr.meterreadings.data.remote.dto.GetCtrDaysRequest
-import ru.dr.meterreadings.data.remote.dto.GetCtrListRequest
-import ru.dr.meterreadings.data.remote.dto.InsertCtrRequest
-import ru.dr.meterreadings.data.remote.dto.KvcAbonentInfoDto
-import ru.dr.meterreadings.data.remote.dto.KvcCounterDto
-import ru.dr.meterreadings.data.remote.dto.KvcCounterHistoryDto
-import ru.dr.meterreadings.data.remote.dto.KvcLocationDto
-import ru.dr.meterreadings.data.remote.dto.KvcRegionDto
-import ru.dr.meterreadings.data.remote.dto.KvcTransitDaysDto
+import ru.dr.meterreadings.data.remote.dto.kvc.CounterForInsertDto
+import ru.dr.meterreadings.data.remote.dto.kvc.GetAbonentInfoRequest
+import ru.dr.meterreadings.data.remote.dto.kvc.GetCntListRequest
+import ru.dr.meterreadings.data.remote.dto.kvc.GetTransmissionPeriodRequestDto
+import ru.dr.meterreadings.data.remote.dto.kvc.GetMetersRequestDto
+import ru.dr.meterreadings.data.remote.dto.kvc.InsertCtrRequest
+import ru.dr.meterreadings.data.remote.dto.kvc.KvcAccountInfoDto
+import ru.dr.meterreadings.data.remote.dto.kvc.KvcMetersDto
+import ru.dr.meterreadings.data.remote.dto.kvc.KvcMeterHistoryDto
+import ru.dr.meterreadings.data.remote.dto.kvc.KvcLocationDto
+import ru.dr.meterreadings.data.remote.dto.kvc.KvcRegionDto
+import ru.dr.meterreadings.data.remote.dto.kvc.KvcTransmissionPeriodDto
+import ru.dr.meterreadings.utils.safeNetworkCall
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -56,7 +57,7 @@ class KvcRepository @Inject constructor(
      * API: POST /GetActiveCtrRegions
      */
     suspend fun getRegions(): Result<List<KvcRegionDto>> {
-        return try {
+        return safeNetworkCall {
             println("🔍 [KvcRepository] Загружаем регионы КВЦ...")
 
             val response = httpClient.post(
@@ -66,11 +67,8 @@ class KvcRepository @Inject constructor(
             val regions = response.body<List<KvcRegionDto>>()
 
             println("✅ [KvcRepository] Загружено регионов: ${regions.size}")
-            Result.success(regions)
-        } catch (e: Exception) {
-            println("❌ [KvcRepository] Ошибка загрузки регионов: ${e.message}")
-            e.printStackTrace()
-            Result.failure(e)
+
+            regions
         }
     }
 
@@ -119,11 +117,11 @@ class KvcRepository @Inject constructor(
      * API: POST /GetAbonentInfo
      * Body: { servDbs: [...], lc: "...", target: 0 }
      */
-    suspend fun getAbonentInfo(
+    suspend fun getAccount(
         locations: List<KvcLocationDto>,
         accountNumber: String,
         target: Int = 0
-    ): Result<KvcAbonentInfoDto> {
+    ): Result<KvcAccountInfoDto> {
         return try {
             println("🔍 [KvcRepository] Получаем данные абонента: ЛС=$accountNumber")
 
@@ -140,12 +138,12 @@ class KvcRepository @Inject constructor(
                 setBody(requestBody)
             }
 
-            val abonentInfo = response.body<KvcAbonentInfoDto>()
+            val accountInfo = response.body<KvcAccountInfoDto>()
 
             println("✅ [KvcRepository] Получены данные абонента")
-            println("   🏠 Адрес: ${abonentInfo.getFullAddress()}")
+            println("   🏠 Адрес: ${accountInfo.getFullAddress()}")
 
-            Result.success(abonentInfo)
+            Result.success(accountInfo)
         } catch (e: Exception) {
             println("❌ [KvcRepository] Ошибка получения данных абонента: ${e.message}")
             e.printStackTrace()
@@ -165,10 +163,10 @@ class KvcRepository @Inject constructor(
      * API: POST /GetCntList
      * Body: { servDb: {...}, lc: "..." }
      */
-    suspend fun getCounters(
+    suspend fun getMeters(
         location: KvcLocationDto,
         accountNumber: String
-    ): Result<List<KvcCounterDto>> {
+    ): Result<List<KvcMetersDto>> {
         return try {
             println("🔍 [KvcRepository] Получаем счётчики: ЛС=$accountNumber")
 
@@ -184,7 +182,7 @@ class KvcRepository @Inject constructor(
                 setBody(requestBody)
             }
 
-            val counters = response.body<List<KvcCounterDto>>()
+            val counters = response.body<List<KvcMetersDto>>()
 
             println("✅ [KvcRepository] Получено счётчиков: ${counters.size}")
             Result.success(counters)
@@ -209,14 +207,14 @@ class KvcRepository @Inject constructor(
      * Body: { servDb: {...}, lc: "..." }
      * Response: { first: 15, last: 22 }
      */
-    suspend fun getTransitDays(
+    suspend fun getTransmissionPeriod(
         location: KvcLocationDto,
         accountNumber: String
-    ): Result<KvcTransitDaysDto> {
+    ): Result<KvcTransmissionPeriodDto> {
         return try {
             println("🔍 [KvcRepository] Получаем разрешённые дни передачи")
 
-            val requestBody = GetCtrDaysRequest(
+            val requestBody = GetTransmissionPeriodRequestDto(
                 servDb = location,
                 lc = accountNumber
             )
@@ -228,7 +226,7 @@ class KvcRepository @Inject constructor(
                 setBody(requestBody)
             }
 
-            val transitDays = response.body<KvcTransitDaysDto>()
+            val transitDays = response.body<KvcTransmissionPeriodDto>()
 
             println("✅ [KvcRepository] Диапазон: ${transitDays.first}-${transitDays.last}")
             Result.success(transitDays)
@@ -250,24 +248,24 @@ class KvcRepository @Inject constructor(
      *
      * @param location Конфигурация БД провайдера
      * @param accountNumber Номер лицевого счёта
-     * @param counterId ID счётчика (idCnt)
+     * @param meterId ID счётчика (idCnt)
      * @return Result со списком истории (отсортирован от новых к старым)
      *
      * API: POST /GetCtrList
      * Body: { servDb: {...}, lc: "...", idCnt: 58946 }
      */
-    suspend fun getCounterHistory(
+    suspend fun getMeterHistory(
         location: KvcLocationDto,
         accountNumber: String,
-        counterId: Int
-    ): Result<List<KvcCounterHistoryDto>> {
+        meterId: Int
+    ): Result<List<KvcMeterHistoryDto>> {
         return try {
-            println("🔍 [KvcRepository] Получаем историю показаний: idCnt=$counterId")
+            println("🔍 [KvcRepository] Получаем историю показаний: idCnt=$meterId")
 
-            val requestBody = GetCtrListRequest(
+            val requestBody = GetMetersRequestDto(
                 servDb = location,
                 lc = accountNumber,
-                idCnt = counterId
+                idCnt = meterId
             )
 
             val response = httpClient.post(
@@ -277,7 +275,7 @@ class KvcRepository @Inject constructor(
                 setBody(requestBody)
             }
 
-            val history = response.body<List<KvcCounterHistoryDto>>()
+            val history = response.body<List<KvcMeterHistoryDto>>()
             println("✅ [KvcRepository] Получено записей истории: ${history.size}")
 
             Result.success(history)
@@ -305,7 +303,7 @@ class KvcRepository @Inject constructor(
      * Body: { servDb: {...}, ctrForInsert: [...], notes: "...", category: 0 }
      */
     suspend fun submitReading(
-        counter: KvcCounterDto,
+        counter: KvcMetersDto,
         location: KvcLocationDto,
         value: String,
         valueNight: String? = null,
@@ -315,7 +313,7 @@ class KvcRepository @Inject constructor(
             // ШАГ 1: Проверяем разрешённый период
             println("🔍 [KvcRepository] Проверяем период передачи...")
 
-            val transitDaysResult = getTransitDays(location, counter.lc.trim())
+            val transitDaysResult = getTransmissionPeriod(location, counter.lc.trim())
             if (transitDaysResult.isFailure) {
                 return Result.failure(Exception("Не удалось проверить разрешённые дни"))
             }

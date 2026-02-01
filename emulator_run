@@ -1,0 +1,1 @@
+./emulator -avd Medium_Phone -writable-system -gpu swiftshader_indirect -no-snapshot-load -memory 4096 -cores 4 -feature Arm64AbiVendorOverride

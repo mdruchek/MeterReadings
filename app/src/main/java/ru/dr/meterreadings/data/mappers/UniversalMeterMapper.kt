@@ -2,7 +2,7 @@
 package ru.dr.meterreadings.data.mappers
 
 import ru.dr.meterreadings.data.local.entities.MeterEntity
-import ru.dr.meterreadings.domain.connector.LoadMeters
+import ru.dr.meterreadings.domain.connector.GetMeters
 import ru.dr.meterreadings.models.ui.MeterUiModel
 
 /**
@@ -14,7 +14,7 @@ object UniversalMeterMapper {
      * Маппинг MeterInfo → MeterUiModel
      */
     fun mapToUi(
-        meterInfo: LoadMeters.MeterInfo,
+        meterInfo: GetMeters.MeterInfo,
         accountId: String
     ): MeterUiModel {
         return MeterUiModel(
@@ -31,7 +31,7 @@ object UniversalMeterMapper {
      * Маппинг MeterInfo → MeterEntity
      */
     fun mapToEntity(
-        meterInfo: LoadMeters.MeterInfo,
+        meterInfo: GetMeters.MeterInfo,
         accountId: String
     ): MeterEntity {
         return MeterEntity(
@@ -48,14 +48,14 @@ object UniversalMeterMapper {
      * Маппинг списка
      */
     fun mapListToUi(
-        meters: List<LoadMeters.MeterInfo>,
+        meters: List<GetMeters.MeterInfo>,
         accountId: String
     ): List<MeterUiModel> {
         return meters.map { mapToUi(it, accountId) }
     }
 
     fun mapListToEntity(
-        meters: List<LoadMeters.MeterInfo>,
+        meters: List<GetMeters.MeterInfo>,
         accountId: String
     ): List<MeterEntity> {
         return meters.map { mapToEntity(it, accountId) }

@@ -1,0 +1,648 @@
+// app/src/main/java/ru/dr/meterreadings/viewmodels/ProfileDetailViewModel.kt
+package ru.dr.meterreadings.viewmodels
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import ru.dr.meterreadings.data.local.dao.MeterDao
+import ru.dr.meterreadings.data.mappers.UniversalMeterMapper
+import ru.dr.meterreadings.data.repository.AccountRepository
+import ru.dr.meterreadings.data.repository.ProfileRepository
+import ru.dr.meterreadings.domain.connector.GetCounterHistory
+import ru.dr.meterreadings.domain.connector.GetTransmissionPeriod
+import ru.dr.meterreadings.domain.connector.LoadMeters
+import ru.dr.meterreadings.domain.connector.ProviderConnectorFactory
+import ru.dr.meterreadings.domain.connector.SubmitReadings
+import ru.dr.meterreadings.domain.connector.ValidateReading
+import ru.dr.meterreadings.models.domain.AccountDomainModel
+import ru.dr.meterreadings.models.domain.ProfileDomainModel
+import ru.dr.meterreadings.models.ui.MeterUiModel
+import java.text.SimpleDateFormat
+import java.util.*
+import javax.inject.Inject
+
+/**
+ * ViewModel для экрана детализации профиля (ProfileDetailScreen).
+ *
+ * Управляет:
+ * - Загрузкой и отображением списка аккаунтов (ЛС) профиля
+ * - Загрузкой счётчиков по каждому аккаунту (универсально через коннекторы)
+ * - Отправкой показаний через API провайдера
+ * - Кешированием данных для работы без повторных запросов
+ */
+@HiltViewModel
+class aaProfileDetailViewModel @Inject constructor(
+    private val accountRepository: AccountRepository,
+    private val profileRepository: ProfileRepository,
+    private val providerConnectorFactory: ProviderConnectorFactory,
+    private val meterDao: MeterDao
+) : ViewModel() {
+
+    // ============================================
+    // STATE (Состояние экрана)
+    // ============================================
+
+    /** ID текущего профиля */
+    private val _profileId = MutableStateFlow<String?>(null)
+    val profileId: StateFlow<String?> = _profileId.asStateFlow()
+
+    /** Данные текущего профиля */
+    private val _profile = MutableStateFlow<ProfileDomainModel?>(null)
+    val profile: StateFlow<ProfileDomainModel?> = _profile.asStateFlow()
+
+    /** Список аккаунтов (ЛС) для профиля */
+    private val _accounts = MutableStateFlow<List<AccountDomainModel>>(emptyList())
+    val accounts: StateFlow<List<AccountDomainModel>> = _accounts.asStateFlow()
+
+    /** Карта: id аккаунта → строка адреса абонента */
+    private val _accountAddresses = MutableStateFlow<Map<String, String>>(emptyMap())
+    val accountAddresses: StateFlow<Map<String, String>> = _accountAddresses.asStateFlow()
+
+    /** Список UI‑моделей счётчиков для отображения */
+    private val _meters = MutableStateFlow<List<MeterUiModel>>(emptyList())
+    val meters: StateFlow<List<MeterUiModel>> = _meters.asStateFlow()
+
+    /** Флаг глобальной загрузки */
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    /** Текст ошибки для показа в UI */
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+
+    /** Множество ID счётчиков, по которым сейчас отправляется показание */
+    private val _submittingMeters = MutableStateFlow<Set<String>>(emptySet())
+    val submittingMeters: StateFlow<Set<String>> = _submittingMeters.asStateFlow()
+
+    /** Универсальный кеш данных провайдеров (для submitReading) */
+    private val _providerCache = MutableStateFlow<Map<String, ProviderCacheData>>(emptyMap())
+
+    // ✅ НОВОЕ: Хранилище истории показаний для каждого счётчика
+    /**
+     * История показаний счётчиков
+     *
+     * Структура: Map<meterId, List<HistoryEntry>>
+     * - Ключ: UI ID счётчика (например "account123_58946")
+     * - Значение: Список записей истории от новых к старым
+     *
+     * Загружается:
+     * - При отправке показания (для валидации)
+     * - При открытии окна истории (для отображения)
+     *
+     * Накапливается в памяти:
+     * - При загрузке ДОБАВЛЯЕТСЯ к уже существующим записям
+     * - НЕ обнуляется при закрытии модального окна
+     * - Очищается только при уходе с ProfileDetailScreen (onCleared)
+     *
+     * Используется для:
+     * - Валидации минимального значения при отправке
+     * - Отображения истории в отдельном окне
+     * - Динамической валидации поля ввода (если история уже загружена)
+     */
+    private val _counterHistories = MutableStateFlow<Map<String, List<GetCounterHistory.HistoryEntry>>>(emptyMap())
+    val counterHistories: StateFlow<Map<String, List<GetCounterHistory.HistoryEntry>>> = _counterHistories.asStateFlow()
+
+    // ============================================
+    // PUBLIC METHODS (Публичные методы)
+    // ============================================
+
+    /**
+     * Инициализирует экран детализации профиля
+     */
+    fun initialize(profileId: String) {
+        _profileId.value = profileId
+
+        // Подписка на изменения данных профиля
+        viewModelScope.launch {
+            profileRepository.getProfileById(profileId).collect { profile ->
+                _profile.value = profile
+            }
+        }
+
+        // Подписка на изменения списка аккаунтов профиля
+        viewModelScope.launch {
+            accountRepository.getAccountsByProfileId(profileId).collect { accounts ->
+                println("🔍 [ProfileDetailViewModel] Обновление аккаунтов: ${accounts.size}")
+                _accounts.value = accounts
+                if (accounts.isNotEmpty()) {
+                    loadMetersForAllAccounts(accounts)
+                } else {
+                    _meters.value = emptyList()
+                    _accountAddresses.value = emptyMap()
+                    _isLoading.value = false
+                }
+            }
+        }
+    }
+
+    /**
+     * Отправляет новое показание по конкретному счётчику
+     *
+     * Процесс:
+     * 1. Загружаем историю показаний (для валидации)
+     * 2. Валидируем введённое значение через ValidateReading
+     * 3. Отправляем показание через SubmitReadings
+     * 4. Перезагружаем счётчики для обновления UI
+     *
+     * @param meter UI-модель счётчика
+     * @param newValue Новое показание для отправки
+     */
+    fun submitReading(meter: MeterUiModel, newValue: Int) {
+        viewModelScope.launch {
+            // Добавляем счётчик в список "отправляется"
+            _submittingMeters.value = _submittingMeters.value + meter.id
+            try {
+                println("📤 [ProfileDetailViewModel] Отправляем показание: ${meter.type} = $newValue")
+
+                // ШАГ 1: Находим аккаунт
+                val account = _accounts.value.firstOrNull { it.id == meter.accountId }
+                    ?: throw Exception("Аккаунт не найден")
+
+                // ШАГ 2: Получаем коннектор провайдера
+                val connector = providerConnectorFactory.getConnector(account.providerId)
+                if (connector !is SubmitReadings) {
+                    throw Exception("Провайдер не поддерживает отправку показаний")
+                }
+
+                // ШАГ 3: Берём кеш и API ID из памяти
+                val cacheData = _providerCache.value[account.id]?.rawData
+                val apiCounterId = _providerCache.value[account.id]?.meterApiIds?.get(meter.id)
+                    ?: throw Exception("Данные счётчика не загружены. Обновите страницу.")
+
+                println("📋 [ProfileDetailViewModel] API ID счётчика: $apiCounterId")
+                println("📦 [ProfileDetailViewModel] Кеш: ${if (cacheData != null) "ЕСТЬ" else "НЕТ"}")
+
+                // ШАГ 4: Загружаем историю показаний (для валидации)
+                println("🔍 [ProfileDetailViewModel] Загружаем историю для валидации...")
+                val historyLoadResult = loadCounterHistory(meter.id)
+                if (historyLoadResult.isFailure) {
+                    println("⚠️ [ProfileDetailViewModel] Не удалось загрузить историю, валидации не будет")
+                }
+
+                // ШАГ 5: Валидация через интерфейс ValidateReading
+                if (connector is ValidateReading) {
+                    println("✅ [ProfileDetailViewModel] Провайдер поддерживает валидацию")
+                    val minValueResult = connector.getMinimumAllowedValue(
+                        counterId = apiCounterId,
+                        accountNumber = account.accountNumber,
+                        regionId = account.regionId?.toString(),
+                        cacheData = cacheData
+                    )
+
+                    minValueResult.onSuccess { minValue ->
+                        if (minValue != null) {
+                            println("📊 [ProfileDetailViewModel] Минимальное значение: $minValue")
+                            if (newValue < minValue) {
+                                throw Exception(
+                                    "Показание не может быть меньше $minValue\n" +
+                                            "(минимально допустимое значение)"
+                                )
+                            }
+                            println("✅ [ProfileDetailViewModel] Валидация пройдена: $newValue >= $minValue")
+                        } else {
+                            println("⚠️ [ProfileDetailViewModel] Минимум = null, валидации не будет")
+                        }
+                    }
+
+                    minValueResult.onFailure { error ->
+                        println("⚠️ [ProfileDetailViewModel] Ошибка валидации: ${error.message}")
+                    }
+                } else {
+                    println("⚠️ [ProfileDetailViewModel] Провайдер не поддерживает ValidateReading")
+                }
+
+                // ШАГ 6: Отправляем показание через коннектор
+                println("📤 [ProfileDetailViewModel] Отправка через ${connector.javaClass.simpleName}")
+                val result = connector.submitReading(
+                    counterId = apiCounterId,
+                    accountNumber = account.accountNumber,
+                    value = newValue.toString(),
+                    valueNight = null,
+                    regionId = account.regionId?.toString(),
+                    cacheData = cacheData
+                )
+
+                // ШАГ 7: Обрабатываем результат отправки
+                if (result.isFailure) {
+                    throw result.exceptionOrNull()
+                        ?: Exception("Не удалось передать показание")
+                }
+
+                println("✅ [ProfileDetailViewModel] Показание успешно передано")
+
+                // ✅ ШАГ 8: СБРАСЫВАЕМ историю для этого счётчика (чтобы перезагрузить с актуальными данными)
+                println("🗑️ [ProfileDetailViewModel] Очищаем историю для ${meter.id} для обновления с сервера")
+                _counterHistories.value = _counterHistories.value - meter.id
+
+                // ШАГ 9: Перезагружаем счётчики для обновления UI
+                _accounts.value.let { accounts ->
+                    if (accounts.isNotEmpty()) {
+                        println("🔄 [ProfileDetailViewModel] Перезагружаем счётчики...")
+                        loadMetersForAllAccounts(accounts)
+
+                        // ✅ НОВОЕ: Перезагружаем историю ПОСЛЕ обновления счётчиков
+                        println("📊 [ProfileDetailViewModel] Перезагружаем историю для ${meter.id}...")
+                        loadCounterHistory(meter.id)
+                    }
+                }
+
+            } catch (e: Exception) {
+                println("❌ [ProfileDetailViewModel] Ошибка передачи: ${e.message}")
+                e.printStackTrace()
+
+                _error.value = when {
+                    e.message?.contains("Период") == true -> e.message
+                    e.message?.contains("Передача доступна") == true -> e.message
+                    e.message?.contains("не может быть меньше") == true -> e.message
+                    else -> "Не удалось передать показание: ${e.message}"
+                }
+            } finally {
+                // Убираем счётчик из списка "отправляется"
+                _submittingMeters.value = _submittingMeters.value - meter.id
+            }
+        }
+    }
+
+
+    fun deleteAccount(accountId: String) {
+        viewModelScope.launch {
+            try {
+                accountRepository.deleteAccount(accountId)
+                println("✅ [ProfileDetailViewModel] Аккаунт удалён")
+            } catch (e: Exception) {
+                println("❌ [ProfileDetailViewModel] Ошибка удаления: ${e.message}")
+                _error.value = "Не удалось удалить аккаунт"
+            }
+        }
+    }
+
+    fun clearError() {
+        _error.value = null
+    }
+
+    fun refresh() {
+        _accounts.value.let { accounts ->
+            if (accounts.isNotEmpty()) {
+                loadMetersForAllAccounts(accounts)
+            }
+        }
+    }
+
+    // ✅ НОВОЕ: Загрузка истории показаний конкретного счётчика
+    /**
+     * Загружает историю показаний для конкретного счётчика
+     *
+     * Логика:
+     * 1. Проверяет, не загружена ли уже история для этого счётчика
+     * 2. Если загружена — ничего не делает (используем кеш из памяти)
+     * 3. Если нет — делает запрос через коннектор провайдера
+     * 4. ДОБАВЛЯЕТ результат в состояние, НЕ перезаписывая другие счётчики
+     *
+     * Вызывается:
+     * - Перед отправкой показания (для валидации)
+     * - При открытии модального окна истории
+     *
+     * @param meterId UI ID счётчика (формат: "accountId_apiCounterId")
+     * @return Result с историей или ошибкой
+     */
+    suspend fun loadCounterHistory(meterId: String): Result<List<GetCounterHistory.HistoryEntry>> {
+        return try {
+            println("🔍 [ProfileDetailViewModel] Запрос истории для счётчика $meterId")
+
+            // ШАГ 1: Проверяем, не загружена ли уже история
+            if (_counterHistories.value.containsKey(meterId)) {
+                val cachedHistory = _counterHistories.value[meterId]!!
+                println("✅ [ProfileDetailViewModel] История уже загружена (${cachedHistory.size} записей)")
+                return Result.success(cachedHistory)
+            }
+
+            // ШАГ 2: Находим счётчик и аккаунт
+            val meter = _meters.value.firstOrNull { it.id == meterId }
+                ?: return Result.failure(Exception("Счётчик не найден"))
+
+            val account = _accounts.value.firstOrNull { it.id == meter.accountId }
+                ?: return Result.failure(Exception("Аккаунт не найден"))
+
+            // ШАГ 3: Получаем коннектор провайдера
+            val connector = providerConnectorFactory.getConnector(account.providerId)
+
+            // ШАГ 4: Проверяем, поддерживает ли провайдер получение истории
+            if (connector !is GetCounterHistory) {
+                println("⚠️ [ProfileDetailViewModel] Провайдер ${account.providerId} не поддерживает историю")
+                return Result.failure(Exception("Провайдер не поддерживает загрузку истории"))
+            }
+
+            // ШАГ 5: Берём кеш и API ID из памяти
+            val cacheData = _providerCache.value[account.id]?.rawData
+            val apiCounterId = _providerCache.value[account.id]?.meterApiIds?.get(meterId)
+                ?: return Result.failure(Exception("API ID счётчика не найден. Обновите страницу."))
+
+            println("📋 [ProfileDetailViewModel] API ID: $apiCounterId")
+            println("📦 [ProfileDetailViewModel] Кеш: ${if (cacheData != null) "ЕСТЬ" else "НЕТ"}")
+
+            // ШАГ 6: Загружаем историю через коннектор
+            val historyResult = connector.getCounterHistory(
+                counterId = apiCounterId,
+                accountNumber = account.accountNumber,
+                regionId = account.regionId?.toString(),
+                cacheData = cacheData
+            )
+
+            // ШАГ 7: Обрабатываем результат
+            historyResult.fold(
+                onSuccess = { history ->
+                    println("✅ [ProfileDetailViewModel] Загружено ${history.size} записей истории")
+
+                    // ✅ ВАЖНО: ДОБАВЛЯЕМ к существующим, НЕ перезаписываем
+                    _counterHistories.value = _counterHistories.value + mapOf(meterId to history)
+
+                    Result.success(history)
+                },
+                onFailure = { error ->
+                    println("❌ [ProfileDetailViewModel] Ошибка загрузки истории: ${error.message}")
+                    Result.failure(error)
+                }
+            )
+
+        } catch (e: Exception) {
+            println("❌ [ProfileDetailViewModel] Исключение: ${e.message}")
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    // ✅ НОВОЕ: Получение минимального значения для UI валидации
+    /**
+     * Получить минимально допустимое значение для счётчика (для UI валидации)
+     *
+     * Вызывается из UI для динамической валидации поля ввода.
+     * Работает ТОЛЬКО если история уже загружена в _counterHistories.
+     *
+     * @param meterId UI ID счётчика
+     * @return минимальное значение или null
+     */
+    suspend fun getMinimumValueForMeter(meterId: String): Int? {
+        return try {
+            println("🔍 [ProfileDetailViewModel] Запрос минимума для UI: $meterId")
+
+            // ШАГ 1: Проверяем, есть ли история в состоянии
+            if (!_counterHistories.value.containsKey(meterId)) {
+                println("⚠️ [ProfileDetailViewModel] История для $meterId не загружена, валидация в UI невозможна")
+                return null
+            }
+
+            println("✅ [ProfileDetailViewModel] История найдена, получаем минимум через ValidateReading")
+
+            // ШАГ 2: Находим счётчик и аккаунт
+            val meter = _meters.value.firstOrNull { it.id == meterId }
+            if (meter == null) {
+                println("❌ [ProfileDetailViewModel] Счётчик $meterId не найден")
+                return null
+            }
+
+            val account = _accounts.value.firstOrNull { it.id == meter.accountId }
+            if (account == null) {
+                println("❌ [ProfileDetailViewModel] Аккаунт ${meter.accountId} не найден")
+                return null
+            }
+
+            // ШАГ 3: Получаем коннектор
+            val connector = providerConnectorFactory.getConnector(account.providerId)
+            if (connector !is ValidateReading) {
+                println("⚠️ [ProfileDetailViewModel] Провайдер ${account.providerId} не поддерживает ValidateReading")
+                return null
+            }
+
+            // ШАГ 4: Берём кеш и API ID
+            val cacheData = _providerCache.value[account.id]?.rawData
+            val apiCounterId = _providerCache.value[account.id]?.meterApiIds?.get(meterId)
+            if (apiCounterId == null) {
+                println("❌ [ProfileDetailViewModel] API ID для $meterId не найден")
+                return null
+            }
+
+            println("📋 [ProfileDetailViewModel] API ID: $apiCounterId, получаем минимум...")
+
+            // ШАГ 5: Получаем минимум через ValidateReading
+            val minValueResult = connector.getMinimumAllowedValue(
+                counterId = apiCounterId,
+                accountNumber = account.accountNumber,
+                regionId = account.regionId?.toString(),
+                cacheData = cacheData
+            )
+
+            val minValue = minValueResult.getOrNull()
+            println("📊 [ProfileDetailViewModel] Минимум для UI: ${minValue ?: "не определён"}")
+
+            minValue
+
+        } catch (e: Exception) {
+            println("❌ [ProfileDetailViewModel] Ошибка получения минимума: ${e.message}")
+            e.printStackTrace()
+            null
+        }
+    }
+
+
+    // ============================================
+    // PRIVATE METHODS (Внутренние методы)
+    // ============================================
+
+    /**
+     * Загружает счётчики для всех аккаунтов (универсально через коннекторы)
+     */
+    private fun loadMetersForAllAccounts(accounts: List<AccountDomainModel>) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+
+            val allMeters = mutableListOf<MeterUiModel>()
+            val providerCache = mutableMapOf<String, ProviderCacheData>()
+            val addresses = mutableMapOf<String, String>()
+
+            try {
+                println("🔍 [ProfileDetailViewModel] Загружаем счётчики для ${accounts.size} аккаунтов")
+
+                for (account in accounts) {
+                    println("📋 [ProfileDetailViewModel] Аккаунт: ${account.accountNumber}, Провайдер: ${account.providerId}")
+
+                    try {
+                        // ✅ Получаем коннектор через фабрику
+                        val connector = providerConnectorFactory.getConnector(account.providerId)
+
+                        // ✅ Проверяем, поддерживает ли провайдер загрузку счётчиков
+                        if (connector !is LoadMeters) {
+                            println("⚠️ [ProfileDetailViewModel] Провайдер ${account.providerId} не поддерживает загрузку счётчиков")
+                            continue
+                        }
+
+                        // ✅ Загружаем счётчики через универсальный интерфейс
+                        val result = connector.loadMeters(
+                            accountNumber = account.accountNumber,
+                            regionId = account.regionId?.toString()
+                        )
+
+                        result.fold(
+                            onSuccess = { loadResult ->
+                                // Маппинг в UI
+//                                val uiMeters = UniversalMeterMapper.mapListToUi(
+//                                    meters = loadResult.meters,
+//                                    accountId = account.id
+//                                )
+
+                                val uiMeters = mutableListOf<MeterUiModel>()
+
+                                // ШАГ 4: Маппинг в UI модели
+                                for (meter in loadResult.meters) {
+                                    // ✅ ПРОСТО: Берём расход из состояния _counterHistories
+                                    val meterId = "${account.id}_${meter.id}"
+                                    val lastMonthConsumption = _counterHistories.value[meterId]?.firstOrNull()?.consumption
+
+                                    uiMeters.add(
+                                        MeterUiModel(
+                                            id = meterId,
+                                            accountId = account.id,
+                                            type = meter.type,
+                                            serialNumber = meter.serialNumber,
+                                            lastValue = meter.lastValue,
+                                            lastSubmissionDate = meter.lastSubmissionDate,
+                                            lastMonthConsumption = lastMonthConsumption // ← Из состояния или null
+                                        )
+                                    )
+                                }
+
+
+                                allMeters.addAll(uiMeters)
+                                addresses[account.id] = loadResult.address
+
+                                // Сохраняем в БД
+                                val entities = UniversalMeterMapper.mapListToEntity(
+                                    meters = loadResult.meters,
+                                    accountId = account.id
+                                )
+                                meterDao.insertAll(entities)
+
+                                // Создаём кеш для submitReading
+                                val meterApiIds = loadResult.meters.associate {
+                                    "${account.id}_${it.id}" to it.id
+                                }
+                                providerCache[account.id] = ProviderCacheData(
+                                    meterApiIds = meterApiIds,
+                                    rawData = loadResult.cacheData
+                                )
+
+                                println("✅ [ProfileDetailViewModel] Загружено ${uiMeters.size} счётчиков для ЛС ${account.accountNumber}")
+                            },
+                            onFailure = { error ->
+                                println("❌ [ProfileDetailViewModel] Ошибка для ЛС ${account.accountNumber}: ${error.message}")
+                            }
+                        )
+                    } catch (e: Exception) {
+                        println("❌ [ProfileDetailViewModel] Ошибка для аккаунта ${account.accountNumber}: ${e.message}")
+                    }
+                }
+
+                _meters.value = allMeters
+                _accountAddresses.value = addresses
+                _providerCache.value = providerCache
+
+                // Обновляем периоды передачи
+                updateTransmissionPeriods(accounts)
+
+                println("✅ [ProfileDetailViewModel] ИТОГО загружено счётчиков: ${allMeters.size}")
+            } catch (e: Exception) {
+                println("❌ [ProfileDetailViewModel] Общая ошибка: ${e.message}")
+                e.printStackTrace()
+                _error.value = "Не удалось загрузить счётчики: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Обновление периодов передачи для всех провайдеров
+     */
+    private suspend fun updateTransmissionPeriods(accounts: List<AccountDomainModel>) {
+        val providerIds = accounts.map { it.providerId }.toSet()
+
+        for (providerId in providerIds) {
+            try {
+                val connector = providerConnectorFactory.getConnector(providerId)
+
+                // Проверяем, поддерживает ли провайдер получение периода
+                if (connector !is GetTransmissionPeriod) {
+                    println("⚠️ [ProfileDetailViewModel] Провайдер $providerId не поддерживает получение периода")
+                    continue
+                }
+
+                // Находим первый аккаунт этого провайдера
+                val account = accounts.firstOrNull { it.providerId == providerId } ?: continue
+
+                // Проверяем, загружен ли период для текущего месяца
+                val currentMonth = SimpleDateFormat("yyyy-MM", Locale.getDefault())
+                    .format(Calendar.getInstance().time)
+
+                val provider = profileRepository.getProviderById(providerId).first()
+                if (provider?.periodLoadedForMonth == currentMonth) {
+                    println("✅ [ProfileDetailViewModel] Период для провайдера $providerId уже загружен")
+                    continue
+                }
+
+                // Загружаем период
+                val periodResult = connector.getTransmissionPeriod(
+                    accountNumber = account.accountNumber,
+                    regionId = account.regionId
+                )
+
+                periodResult.onSuccess { period ->
+                    profileRepository.updateProviderTransmissionPeriod(
+                        providerId = providerId,
+                        periodStartDay = period.startDay,
+                        periodEndDay = period.endDay
+                    )
+                    println("✅ [ProfileDetailViewModel] Период для провайдера $providerId: ${period.startDay}-${period.endDay}")
+                }
+            } catch (e: Exception) {
+                println("❌ [ProfileDetailViewModel] Ошибка обновления периода для $providerId: ${e.message}")
+            }
+        }
+    }
+
+    // ============================================
+    // DATA CLASSES
+    // ============================================
+
+    /**
+     * Универсальный кеш данных провайдера
+     */
+    private data class ProviderCacheData(
+        val meterApiIds: Map<String, String>,  // UI ID → API ID счётчика
+        val rawData: Any? = null  // Опционально: специфичные данные провайдера
+    )
+
+    // ============================================
+    // LIFECYCLE
+    // ============================================
+
+    /**
+     * Вызывается при уничтожении ViewModel
+     * (когда пользователь уходит с ProfileDetailScreen)
+     */
+    override fun onCleared() {
+        super.onCleared()
+
+        println("🧹 [ProfileDetailViewModel] Очистка ViewModel")
+
+        // Очищаем историю показаний
+        _counterHistories.value = emptyMap()
+
+        // Очищаем кеш провайдера
+        _providerCache.value = emptyMap()
+    }
+}

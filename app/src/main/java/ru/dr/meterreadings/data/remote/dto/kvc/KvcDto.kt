@@ -1,11 +1,7 @@
-package ru.dr.meterreadings.data.remote.dto
+package ru.dr.meterreadings.data.remote.dto.kvc
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-
-// ========================================
-// RESPONSE DTO - Данные от API
-// ========================================
 
 /**
  * Регион КВЦ (район)
@@ -46,7 +42,7 @@ data class KvcLocationDto(
  * Возвращается из GetAbonentInfo
  */
 @Serializable
-data class KvcAbonentInfoDto(
+data class KvcAccountInfoDto(
     /** ID абонента в системе КВЦ */
     @SerialName("id")
     val id: Int,
@@ -146,7 +142,7 @@ data class KvcAbonentInfoDto(
  * Возвращается из GetCntList
  */
 @Serializable
-data class KvcCounterDto(
+data class KvcMetersDto(
     /** ID счётчика */
     @SerialName("id_cnt")
     val idCnt: Int,
@@ -300,7 +296,7 @@ data class KvcCounterDto(
  * Возвращается из GetCtrDays
  */
 @Serializable
-data class KvcTransitDaysDto(
+data class KvcTransmissionPeriodDto(
     /** Первый день месяца (включительно) */
     @SerialName("first")
     val first: Int,
@@ -353,7 +349,7 @@ data class KvcTransitDaysDto(
  * Возвращается из GetCtrList (история по одному счётчику)
  */
 @Serializable
-data class KvcCounterHistoryDto(
+data class KvcMeterHistoryDto(
     /** ID записи истории */
     @SerialName("id")
     val id: Int,
@@ -390,10 +386,6 @@ data class KvcCounterHistoryDto(
     @SerialName("description")
     val description: String
 )
-
-// ========================================
-// REQUEST DTO - Тела запросов к API
-// ========================================
 
 /**
  * Запрос GetAbonentInfo
@@ -489,7 +481,7 @@ data class InsertCtrRequest(
  * Запрос GetCtrDays - получение разрешённых дней передачи показаний
  */
 @Serializable
-data class GetCtrDaysRequest(
+data class GetTransmissionPeriodRequestDto(
     @SerialName("servDb")
     val servDb: KvcLocationDto,
 
@@ -501,7 +493,7 @@ data class GetCtrDaysRequest(
  * Запрос GetCtrList - получение истории показаний счётчика
  */
 @Serializable
-data class GetCtrListRequest(
+data class GetMetersRequestDto(
     @SerialName("servDb")
     val servDb: KvcLocationDto,
 
@@ -511,4 +503,3 @@ data class GetCtrListRequest(
     @SerialName("idCnt")
     val idCnt: Int
 )
-

@@ -1,5 +1,7 @@
 package ru.dr.meterreadings.domain.connector
 
+import kotlin.coroutines.RestrictsSuspension
+
 /**
  * Базовый интерфейс для всех провайдеров
  */
@@ -13,9 +15,41 @@ interface ProviderConnector {
 // ============================================
 
 /**
+ * Провайдер требует авторизации приложения перед работой
+ */
+interface AppAuth {
+    suspend fun appAuth(): Result<Boolean>
+}
+
+interface UserAuth {
+    /**
+     * Авторизация пользователя
+     *
+     * @param login Логин
+     * @param password Пароль
+     * @param regionId ID региона (опционально)
+     * @return Result с данными авторизации (токены)
+     */
+    suspend fun userAuth(
+        login: String,
+        password: String,
+        regionId: String? = null
+    ): Result<UserAuthData>
+
+    data class UserAuthData(
+        val authSuccess: Boolean,
+        val accessToken: String? = null,
+        val refreshToken: String? = null,
+        val accessTokenExpires: String? = null,
+        val refreshTokenExpires: String? = null
+    )
+}
+
+
+/**
  * Провайдер имеет региональное деление
  */
-interface HasRegions {
+interface GetRegions {
     suspend fun getRegions(): Result<List<RegionInfo>>
 
     data class RegionInfo(
@@ -29,11 +63,20 @@ interface HasRegions {
  *
  * Возвращает адрес для подтверждения перед сохранением.
  */
-interface SearchAccount {
-    suspend fun searchAccount(
+interface GetAccounts {
+    /**
+     * Поиск лицевых счетов по номеру
+     */
+    suspend fun getAccounts(
         accountNumber: String,
-        regionId: String? = null
-    ): Result<String>
+        regionId: String? = null,
+    ): Result<List<AccountInfo>>
+
+    data class AccountInfo(
+        val accountNumber: String,
+        val address: String? = null,
+        val regionId: String? = null
+    )
 }
 
 /**
@@ -68,15 +111,14 @@ interface GetTransmissionPeriod {
 /**
  * Провайдер поддерживает загрузку счётчиков
  */
-interface LoadMeters {
-    suspend fun loadMeters(
+interface GetMeters {
+    suspend fun getMeters(
         accountNumber: String,
         regionId: String? = null
-    ): Result<LoadMetersResult>
+    ): Result<GetMetersResult>
 
-    data class LoadMetersResult(
+    data class GetMetersResult(
         val meters: List<MeterInfo>,
-        val address: String,
         val cacheData: Any? = null  // Опционально для кеша (например, KvcLocationDto)
     )
 
@@ -109,11 +151,11 @@ interface ValidateReading {
 /**
  * Провайдер поддерживает получение истории показаний
  */
-interface GetCounterHistory {
+interface GetMeterHistory {
     /**
      * История одного показания за месяц
      */
-    data class HistoryEntry(
+    data class MeterHistory(
         /** Месяц (1-12) */
         val month: Int,
 
@@ -136,12 +178,12 @@ interface GetCounterHistory {
      * @param cacheData Кешированные данные для оптимизации
      * @return Result со списком истории (от новых к старым)
      */
-    suspend fun getCounterHistory(
+    suspend fun getMeterHistory(
         counterId: String,
         accountNumber: String,
         regionId: String? = null,
         cacheData: Any? = null
-    ): Result<List<HistoryEntry>>
+    ): Result<List<MeterHistory>>
 }
 
 // ============================================

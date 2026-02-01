@@ -18,6 +18,11 @@ class DatabaseInitializer @Inject constructor(
 
     suspend fun initializeProviders() {
         val existingProviders = providerRepository.getAllProviders().first()
+        println("🔍 [DatabaseInitializer] Провайдеров в БД: ${existingProviders.size}")
+
+        existingProviders.forEach { provider ->
+            println("   📋 ID=${provider.id}, Name=${provider.name}")
+        }
 
         if (existingProviders.isEmpty()) {
             println("✅ [DatabaseInitializer] Добавляем провайдеров...")
@@ -58,37 +63,24 @@ class DatabaseInitializer @Inject constructor(
                 )
             )
 
-            // В будущем добавите других провайдеров:
-            // providerRepository.addProvider(
-            //     ProviderDomainModel(
-            //         id = ProviderIds.TNS.toString(),
-            //         name = "ТНС Энерго",
-            //         type = Type.ElectricitySupply,
-            //         authType = AuthType.API_KEY,
-            //         baseUrl = "https://www.tns-e.ru",
-            //         logoUrl = null,
-            //
-            //         transmissionPeriodStartDay = null,
-            //         transmissionPeriodEndDay = null,
-            //         lastPeriodUpdate = null,
-            //         periodLoadedForMonth = null,
-            //
-            //         autoUpdateEnabled = true,
-            //         updateStartDay = 1,
-            //         updateIntervalHours = 6,
-            //         lastAutoUpdate = null,
-            //
-            //         updateNotificationsEnabled = true,
-            //         errorNotificationsEnabled = true,
-            //
-            //         reminderEnabled = true,
-            //         reminderTimeHour = 9,
-            //         reminderTimeMinute = 0,
-            //         reminderPeriodMode = "AUTO",
-            //         reminderCustomStartDay = null,
-            //         reminderCustomEndDay = null
-            //     )
-            // )
+            providerRepository.addProvider(
+                ProviderDomainModel(
+                    id = ProviderIds.TNS,
+                    name = "ТНС Энерго",
+                    type = Type.ElectricitySupply,
+                    authType = AuthType.LOGIN_PASSWORD,
+                    baseUrl = "https://mobile-api-rostov.tns-e.ru",
+                    logoUrl = null,
+                    transmissionPeriodStartDay = null,
+                    transmissionPeriodEndDay = null,
+                    lastPeriodUpdate = null,
+                    periodLoadedForMonth = null,
+                    autoUpdateEnabled = true,
+                    notificationsEnabled = true,
+                    reminderEnabled = true,
+                    reminderCustomStartDay = null
+                )
+            )
 
             println("✅ [DatabaseInitializer] Провайдеры добавлены")
         } else {

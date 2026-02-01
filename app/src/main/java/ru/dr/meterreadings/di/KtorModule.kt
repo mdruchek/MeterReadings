@@ -6,8 +6,11 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.android.Android
-import io.ktor.client.plugins.HttpTimeout                    // ← ДОБАВИТЬ
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.compression.ContentEncoding // ← ДОБАВИТЬ
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.cookies.HttpCookies              // ✅ ДОБАВИТЬ
+import io.ktor.client.plugins.cookies.AcceptAllCookiesStorage
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
@@ -30,6 +33,18 @@ object KtorModule {
                     isLenient = true
                     prettyPrint = true
                 })
+            }
+
+            // ✅ Это автоматически распакует gzip
+            install(ContentEncoding) {
+                gzip()
+                deflate()
+            }
+
+            // ✅ COOKIES - для обхода DDoS-Guard
+            install(HttpCookies) {
+                // Сохранять все cookies между запросами
+                storage = AcceptAllCookiesStorage()
             }
 
             // Таймауты

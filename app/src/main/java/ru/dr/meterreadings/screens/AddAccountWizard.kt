@@ -18,9 +18,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ru.dr.meterreadings.models.domain.AuthType
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
 import ru.dr.meterreadings.models.domain.Type
 import ru.dr.meterreadings.models.ui.ProviderUiModel
@@ -55,7 +58,7 @@ fun AddAccountWizard(
 
     val isLoadingRegions by viewModel.isLoadingRegions.collectAsStateWithLifecycle()
 
-    val searchedAddress by viewModel.searchedAddress.collectAsStateWithLifecycle()
+    val searchedAccounts by viewModel.searchedAccounts.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
 
     val errorState by viewModel.errorState.collectAsStateWithLifecycle()
@@ -63,6 +66,11 @@ fun AddAccountWizard(
 
     val isCreating by viewModel.isCreating.collectAsStateWithLifecycle()
     val createdAccountId by viewModel.createdAccountId.collectAsStateWithLifecycle()
+
+    val authData by viewModel.authData.collectAsStateWithLifecycle()
+
+    var login by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
 
     // =====================================================
     // АВТОМАТИЧЕСКАЯ НАВИГАЦИЯ ПОСЛЕ СОЗДАНИЯ
@@ -94,6 +102,8 @@ fun AddAccountWizard(
             1 -> {
                 println("🧹 [AddAccountWizard] Полная очистка состояния")
                 accountNumber = ""
+                login = ""
+                password = ""
                 regionSearchQuery = ""
                 isRegionDropdownExpanded = false
             }
@@ -146,36 +156,73 @@ fun AddAccountWizard(
                 canGoNext = when(currentStep) {
                     1 -> selectedProviderId != null
                     2 -> {
-                        val hasAccountNumber = accountNumber.isNotBlank()
-                        val hasRegionIfNeeded = !providerHasRegions || selectedRegionId != null
-                        hasAccountNumber && hasRegionIfNeeded
+                        when (selectedProvider?.authType) {
+                            AuthType.ACCOUNT_NUMBER -> {
+                                val hasAccountNumber = accountNumber.isNotBlank()
+                                val hasRegionIfNeeded = !providerHasRegions || selectedRegionId != null
+                                hasAccountNumber && hasRegionIfNeeded
+                            }
+                            AuthType.LOGIN_PASSWORD -> {
+                                val hasCredentials = login.isNotBlank() && password.isNotBlank()
+                                val hasRegionIfNeeded = !providerHasRegions || selectedRegionId != null
+                                hasCredentials && hasRegionIfNeeded
+                            }
+                            null -> false
+                        }
                     }
-                    3 -> searchedAddress != null && !isCreating
+                    3 -> searchedAccounts != null && !isCreating
                     else -> false
                 },
                 onNext = {
                     when(currentStep) {
                         1 -> {
                             if (selectedProviderId != null) {
-                                viewModel.loadRegionsForProvider(selectedProviderId!!)
+                                viewModel.getRegionsForProvider(selectedProviderId!!)
                                 currentStep = 2
                             }
                         }
                         2 -> {
-                            if (selectedProviderId != null && accountNumber.isNotBlank()) {
-                                viewModel.searchAccountAddress(
-                                    providerId = selectedProviderId!!,
-                                    accountNumber = accountNumber,
-                                    regionId = selectedRegionId
-                                )
-                                currentStep = 3
+                            if (selectedProviderId != null) {
+                                when (selectedProvider?.authType) {
+                                    AuthType.ACCOUNT_NUMBER -> {
+                                        if (accountNumber.isNotBlank()) {
+                                            viewModel.getAccounts(  // ← для ЛС
+                                                providerId = selectedProviderId!!,
+                                                accountNumber = accountNumber,
+                                                regionId = selectedRegionId
+                                            )
+                                            currentStep = 3
+                                        }
+                                    }
+                                    AuthType.LOGIN_PASSWORD -> {
+                                        if (login.isNotBlank() && password.isNotBlank()) {
+                                            viewModel.authorizeUser(  // ← ИЗМЕНИТЬ на authorizeUser
+                                                providerId = selectedProviderId!!,
+                                                login = login,
+                                                password = password,
+                                                regionId = selectedRegionId
+                                            )
+                                            currentStep = 3
+                                        }
+                                    }
+                                    null -> {}
+                                }
                             }
                         }
+
                         3 -> {
-                            if (selectedProviderId != null && accountNumber.isNotBlank()) {
+                            if (selectedProviderId != null) {
+                                val accountData = when (selectedProvider?.authType) {
+                                    AuthType.ACCOUNT_NUMBER -> accountNumber
+                                    AuthType.LOGIN_PASSWORD -> login  // Сохраняем только email как identifier
+                                    null -> accountNumber
+                                }
+
                                 viewModel.createAccount(
                                     profileId = profile.id,
-                                    accountNumber = accountNumber
+                                    accountNumber = accountData,
+                                    login = if (selectedProvider?.authType == AuthType.LOGIN_PASSWORD) login else null,
+                                    password = if (selectedProvider?.authType == AuthType.LOGIN_PASSWORD) password else null
                                 )
                             }
                         }
@@ -189,7 +236,8 @@ fun AddAccountWizard(
                         currentStep--
                     }
                 },
-                isLoading = isCreating
+                isLoading = isCreating,
+                authType = selectedProvider?.authType
             )
         }
     ) { paddingValues ->
@@ -277,7 +325,8 @@ fun AddAccountWizard(
                             }
                             Spacer(Modifier.height(32.dp))
                         }
-                    } else {
+                    }
+                    else {
                         if (providerHasRegions && regions.isNotEmpty()) {
                             item {
                                 Spacer(Modifier.height(16.dp))
@@ -384,22 +433,62 @@ fun AddAccountWizard(
 
                         item {
                             Spacer(Modifier.height(24.dp))
-                            Text(
-                                text = "Лицевой счёт",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(Modifier.height(8.dp))
 
-                            OutlinedTextField(
-                                value = accountNumber,
-                                onValueChange = { accountNumber = it },
-                                label = { Text("Номер счёта") },
-                                placeholder = { Text("123456789") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true
-                            )
+                            when (selectedProvider?.authType) {
+                                AuthType.ACCOUNT_NUMBER -> {
+                                    // Номер лицевого счёта
+                                    Text(
+                                        text = "Лицевой счёт",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedTextField(
+                                        value = accountNumber,
+                                        onValueChange = { accountNumber = it },
+                                        label = { Text("Номер счёта") },
+                                        placeholder = { Text("123456789") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                }
+
+                                AuthType.LOGIN_PASSWORD -> {
+                                    // Логин и пароль
+                                    Text(
+                                        text = "Данные для входа",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+
+                                    OutlinedTextField(
+                                        value = login,
+                                        onValueChange = { login = it },
+                                        label = { Text("Email или логин") },
+                                        placeholder = { Text("example@mail.ru") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+
+                                    Spacer(Modifier.height(12.dp))
+
+                                    OutlinedTextField(
+                                        value = password,
+                                        onValueChange = { password = it },
+                                        label = { Text("Пароль") },
+                                        placeholder = { Text("••••••••") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                        visualTransformation = PasswordVisualTransformation(),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                }
+
+                                null -> {}
+                            }
                         }
                     }
                 }
@@ -420,11 +509,19 @@ fun AddAccountWizard(
                                         verticalArrangement = Arrangement.spacedBy(16.dp)
                                     ) {
                                         CircularProgressIndicator()
-                                        Text("Поиск абонента...")
+                                        Text(
+                                            text = when (selectedProvider?.authType) {
+                                                AuthType.LOGIN_PASSWORD -> "Авторизация..."
+                                                else -> "Поиск аккаунта..."
+                                            },
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
                             }
-                            searchedAddress != null -> {
+
+                            searchedAccounts != null -> {
                                 Card(modifier = Modifier.fillMaxWidth()) {
                                     Column(modifier = Modifier.padding(16.dp)) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -436,21 +533,75 @@ fun AddAccountWizard(
                                             )
                                             Spacer(Modifier.width(12.dp))
                                             Text(
-                                                text = "Абонент найден!",
+                                                text = when (selectedProvider?.authType) {
+                                                    AuthType.LOGIN_PASSWORD -> "Авторизация успешна!"
+                                                    else -> "Аккаунт найден!"
+                                                },
                                                 style = MaterialTheme.typography.titleMedium
                                             )
                                         }
+
                                         Spacer(Modifier.height(16.dp))
-                                        Text(
-                                            text = "📍 $searchedAddress",
-                                            style = MaterialTheme.typography.bodyLarge
-                                        )
-                                        Spacer(Modifier.height(8.dp))
-                                        Text(
-                                            text = "🆔 Л/С: $accountNumber",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+
+                                        when (selectedProvider?.authType) {
+                                            AuthType.LOGIN_PASSWORD -> {
+                                                // Отображение для авторизации
+                                                Text(
+                                                    text = "👤 $login",
+                                                    style = MaterialTheme.typography.bodyLarge
+                                                )
+
+                                                Spacer(Modifier.height(8.dp))
+
+                                                regions.find { it.id == selectedRegionId }?.let { region ->
+                                                    Text(
+                                                        text = "🌍 ${region.name}",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+
+                                                // Показать информацию о токене (опционально)
+                                                authData?.accessTokenExpires?.let { expires ->
+                                                    Spacer(Modifier.height(8.dp))
+                                                    Text(
+                                                        text = "⏰ Токен действителен до: $expires",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+
+                                            else -> {
+                                                // Отображение для поиска по ЛС
+                                                searchedAccounts!!.forEach { account ->
+                                                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                                        Text(
+                                                            text = "🆔 Л/С: ${account.accountNumber}",
+                                                            style = MaterialTheme.typography.bodyLarge
+                                                        )
+
+                                                        account.address?.let { address ->
+                                                            Spacer(Modifier.height(4.dp))
+                                                            Text(
+                                                                text = "📍 $address",
+                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+
+                                                        account.regionId?.let { regionId ->
+                                                            Spacer(Modifier.height(4.dp))
+                                                            Text(
+                                                                text = "🌍 Регион: $regionId",
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -529,7 +680,8 @@ fun BottomNavigationBar(
     canGoNext: Boolean,
     onNext: () -> Unit,
     onBack: () -> Unit,
-    isLoading: Boolean = false
+    isLoading: Boolean = false,
+    authType: AuthType? = null  // ✅ ДОБАВИТЬ
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -585,6 +737,7 @@ fun BottomNavigationBar(
                     text = when {
                         isLoading && currentStep == 3 -> "Сохранение..."
                         currentStep == 3 -> "Добавить"
+                        currentStep == 2 && authType == AuthType.LOGIN_PASSWORD -> "Войти"
                         else -> "Далее"
                     }
                 )
