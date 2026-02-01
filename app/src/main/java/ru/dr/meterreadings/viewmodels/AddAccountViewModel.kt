@@ -7,9 +7,11 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import ru.dr.meterreadings.data.repository.AccountRepository
 import ru.dr.meterreadings.data.repository.ProviderRepository
-import ru.dr.meterreadings.domain.connector.HasRegions  // ← ДОБАВИТЬ
-import ru.dr.meterreadings.domain.connector.SearchAccount  // ← ДОБАВИТЬ
+import ru.dr.meterreadings.domain.connector.GetRegions  // ← ДОБАВИТЬ
+import ru.dr.meterreadings.domain.connector.GetAccounts  // ← ДОБАВИТЬ
 import ru.dr.meterreadings.domain.connector.ProviderConnectorFactory
+import ru.dr.meterreadings.domain.connector.AppAuth
+import ru.dr.meterreadings.domain.connector.UserAuth
 import ru.dr.meterreadings.models.domain.ProviderDomainModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
 import java.io.IOException
@@ -134,14 +136,62 @@ class AddAccountViewModel @Inject constructor(
     // STATE - регионы провайдера
     // =====================================================
 
-    private val _regions = MutableStateFlow<List<HasRegions.RegionInfo>>(emptyList())
-    val regions: StateFlow<List<HasRegions.RegionInfo>> = _regions.asStateFlow()
+    private val _regions = MutableStateFlow<List<GetRegions.RegionInfo>>(emptyList())
+    val regions: StateFlow<List<GetRegions.RegionInfo>> = _regions.asStateFlow()
 
     private val _providerHasRegions = MutableStateFlow(false)
     val providerHasRegions: StateFlow<Boolean> = _providerHasRegions.asStateFlow()
 
     private val _isLoadingRegions = MutableStateFlow(false)
     val isLoadingRegions: StateFlow<Boolean> = _isLoadingRegions.asStateFlow()
+
+    /**
+     * Авторизация приложения на API провайдера (если требуется)
+     *
+     * Вызывается перед loadRegionsForProvider для провайдеров,
+     * которые требуют авторизации приложения (например, ТНС)
+     */
+    private suspend fun authorizeAppIfNeeded(providerId: Long): Boolean {
+        return try {
+            val connector = connectorFactory.getConnector(providerId)
+
+            if (connector is AppAuth) {
+                println("🔐 [AddAccountVM] Требуется авторизация приложения...")
+                val result = connector.appAuth()
+
+                result.onSuccess { isAuthorized ->
+                    if (isAuthorized) {
+                        println("✅ [AddAccountVM] Приложение авторизовано")
+                        return true
+                    } else {
+                        println("❌ [AddAccountVM] Авторизация не удалась")
+                        showError(
+                            title = "Ошибка авторизации",
+                            message = "Не удалось авторизовать приложение на сервере"
+                        )
+                        return false
+                    }
+                }.onFailure { error ->
+                    println("❌ [AddAccountVM] Ошибка авторизации: ${error.message}")
+                    showError(
+                        title = "Ошибка авторизации",
+                        message = error.message ?: "Неизвестная ошибка"
+                    )
+                    return false
+                }
+            }
+
+            // Провайдер не требует авторизации приложения
+            true
+        } catch (e: Exception) {
+            println("❌ [AddAccountVM] Исключение при авторизации: ${e.message}")
+            showError(
+                title = "Ошибка",
+                message = e.message ?: "Неизвестная ошибка"
+            )
+            false
+        }
+    }
 
     /**
      * Загрузка регионов для выбранного провайдера
@@ -154,9 +204,14 @@ class AddAccountViewModel @Inject constructor(
             _regions.value = emptyList()
 
             try {
+                if (!authorizeAppIfNeeded(providerId)) {
+                    println("❌ [AddAccountVM] Авторизация не прошла, прерываем загрузку регионов")
+                    return@launch
+                }
+
                 val connector = connectorFactory.getConnector(providerId)
 
-                if (connector is HasRegions) {
+                if (connector is GetRegions) {
                     println("🔍 [AddAccountVM] Провайдер поддерживает регионы, загружаем...")
 
                     val result = connector.getRegions()
@@ -214,11 +269,96 @@ class AddAccountViewModel @Inject constructor(
     }
 
     // =====================================================
+// АВТОРИЗАЦИЯ ПОЛЬЗОВАТЕЛЯ (для ТНС)
+// =====================================================
+
+    private val _authData = MutableStateFlow<UserAuth.UserAuthData?>(null)
+    val authData: StateFlow<UserAuth.UserAuthData?> = _authData.asStateFlow()
+
+    /**
+     * Авторизация пользователя через UserAuth интерфейс
+     *
+     * Используется для провайдеров с логином/паролем (ТНС)
+     */
+    fun authorizeUser(
+        providerId: Long,
+        login: String,
+        password: String,
+        regionId: String?
+    ) {
+        viewModelScope.launch {
+            _isSearching.value = true
+            _searchedAccounts.value = null
+            _authData.value = null
+
+            try {
+                val connector = connectorFactory.getConnector(providerId)
+
+                if (connector is UserAuth) {
+                    println("🔐 [AddAccountVM] Авторизация пользователя: $login")
+
+                    val result = connector.userAuth(
+                        login = login,
+                        password = password,
+                        regionId = regionId
+                    )
+
+                    result.onSuccess { authData ->
+                        if (authData.authSuccess) {
+                            _authData.value = authData
+
+                            // Создаём фейковый AccountInfo для отображения в UI
+                            _searchedAccounts.value = listOf(
+                                GetAccounts.AccountInfo(
+                                    accountNumber = login,
+                                    address = "Авторизация успешна"
+                                )
+                            )
+
+                            println("✅ [AddAccountVM] Авторизация успешна")
+                            println("   Access token: ${authData.accessToken?.take(20)}...")
+                        } else {
+                            showError(
+                                title = "Ошибка авторизации",
+                                message = "Неверный логин или пароль"
+                            )
+                        }
+                    }.onFailure { error ->
+                        showError(
+                            title = "Ошибка авторизации",
+                            message = error.message ?: "Не удалось авторизоваться"
+                        )
+                        println("❌ [AddAccountVM] Ошибка: ${error.message}")
+                    }
+                } else {
+                    showError(
+                        title = "Ошибка",
+                        message = "Провайдер не поддерживает авторизацию по логину/паролю"
+                    )
+                }
+            } catch (e: Exception) {
+                showError(
+                    title = "Ошибка авторизации",
+                    message = when (e) {
+                        is SocketTimeoutException ->
+                            "Сервер не отвечает. Попробуйте позже."
+                        else ->
+                            "Не удалось выполнить авторизацию: ${e.message}"
+                    }
+                )
+                println("❌ [AddAccountVM] Исключение: ${e.message}")
+            } finally {
+                _isSearching.value = false
+            }
+        }
+    }
+
+    // =====================================================
     // STATE - поиск адреса
     // =====================================================
 
-    private val _searchedAddress = MutableStateFlow<String?>(null)
-    val searchedAddress: StateFlow<String?> = _searchedAddress.asStateFlow()
+    private val _searchedAccounts = MutableStateFlow<List<GetAccounts.AccountInfo>?>(null)
+    val searchedAccounts: StateFlow<List<GetAccounts.AccountInfo>?> = _searchedAccounts
 
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
@@ -226,40 +366,44 @@ class AddAccountViewModel @Inject constructor(
     /**
      * Поиск адреса по лицевому счёту
      */
-    fun searchAccountAddress(
+    fun getAccounts(
         providerId: Long,
         accountNumber: String,
         regionId: String?
     ) {
         viewModelScope.launch {
             _isSearching.value = true
-            _searchedAddress.value = null
+            _searchedAccounts.value = null  // ← изменил название
 
             try {
                 val connector = connectorFactory.getConnector(providerId)
 
                 // ✅ Проверяем: поддерживает ли провайдер поиск
-                if (connector is SearchAccount) {
-                    println("🔍 [AddAccountVM] Поиск адреса...")
+                if (connector is GetAccounts) {
+                    println("🔍 [AddAccountVM] Поиск аккаунтов...")
 
-                    val result = connector.searchAccount(
+                    val result = connector.getAccounts(
                         accountNumber = accountNumber,
                         regionId = regionId
                     )
 
-                    result.onSuccess { address ->
-                        _searchedAddress.value = address
-                        println("✅ [AddAccountVM] Адрес найден: $address")
+                    result.onSuccess { accounts ->
+                        _searchedAccounts.value = accounts  // ← список AccountInfo
+                        println("✅ [AddAccountVM] Найдено аккаунтов: ${accounts.size}")
+                        accounts.forEach { account ->
+                            println("   Счёт: ${account.accountNumber}, адрес: ${account.address}")
+                        }
                     }.onFailure { error ->
                         showError(
-                            title = "Абонент не найден",
-                            message = "Лицевой счёт $accountNumber не найден в системе"
+                            title = "Аккаунт не найден",
+                            message = "Лицевой счёт $accountNumber не найден в системе провайдера"
                         )
+                        println("❌ [AddAccountVM] Ошибка поиска: ${error.message}")
                     }
                 } else {
                     showError(
                         title = "Ошибка",
-                        message = "Провайдер не поддерживает поиск адреса"
+                        message = "Провайдер не поддерживает поиск аккаунтов"
                     )
                 }
             } catch (e: Exception) {
@@ -272,14 +416,16 @@ class AddAccountViewModel @Inject constructor(
                             "Не удалось выполнить поиск: ${e.message}"
                     }
                 )
+                println("❌ [AddAccountVM] Исключение: ${e.message}")
             } finally {
                 _isSearching.value = false
             }
         }
     }
 
+
     fun clearSearchResult() {
-        _searchedAddress.value = null
+        _searchedAccounts.value = null
         println("🔄 [AddAccountVM] Результат поиска очищен")
     }
 
