@@ -3,6 +3,7 @@ package ru.dr.meterreadings.data.repository.providers.kvc
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.parameter
+import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -60,7 +61,7 @@ class KvcRepository @Inject constructor(
         return safeNetworkCall {
             println("🔍 [KvcRepository] Загружаем регионы КВЦ...")
 
-            val response = httpClient.post(
+            val response = httpClient.get(
                 urlString = "$BASE_URL/GetActiveCtrRegions"
             )
 
