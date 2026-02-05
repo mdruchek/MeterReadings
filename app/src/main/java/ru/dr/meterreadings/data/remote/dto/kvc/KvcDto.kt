@@ -14,7 +14,7 @@ data class KvcRegionDto(
     @SerialName("name")
     val name: String,
 
-    @SerialName("cod_rs")
+    @SerialName("codeRs")
     val codRs: String
 )
 
