@@ -1,6 +1,7 @@
 package ru.dr.meterreadings.data.repository.providers.kvc
 
 import ru.dr.meterreadings.data.mappers.KvcPeriodMapper
+import ru.dr.meterreadings.data.remote.dto.kvc.CaptchaRequiredException
 import ru.dr.meterreadings.data.remote.dto.kvc.KvcMetersDto
 import ru.dr.meterreadings.data.remote.dto.kvc.KvcMeterHistoryDto
 import ru.dr.meterreadings.data.remote.dto.kvc.KvcLocationDto
@@ -13,13 +14,20 @@ import ru.dr.meterreadings.domain.connector.GetAccounts
 import ru.dr.meterreadings.domain.connector.SubmitReadings
 import ru.dr.meterreadings.domain.connector.ValidateReading
 import ru.dr.meterreadings.domain.constants.ProviderIds
+import ru.dr.meterreadings.domain.service.CaptchaService
+import ru.dr.meterreadings.domain.service.CaptchaResult
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.collections.mapNotNull
 
+/**
+ * Коннектор для провайдера КВЦ
+ * ✅ Интегрирован с CaptchaService
+ * ✅ Использует новый API репозитория (соответствует HAR)
+ */
 @Singleton
 class KvcConnector @Inject constructor(
-    private val kvcRepository: KvcRepository
+    private val kvcRepository: KvcRepository,
+    private val captchaService: CaptchaService
 ) : ProviderConnector,
     GetRegions,
     GetAccounts,
@@ -32,15 +40,16 @@ class KvcConnector @Inject constructor(
     override val providerId: Long = ProviderIds.KVC
     override val providerName: String = "КВЦ"
 
-    /**
-     * Получить список регионов КВЦ
-     */
+    // ==================== РЕГИОНЫ ====================
+
     override suspend fun getRegions(): Result<List<GetRegions.RegionInfo>> {
-        println("🌐 [KvcConnector] Запрос регионов...")
+        println("KvcConnector: getRegions()")
+
         val result = kvcRepository.getRegions()
+
         return result.fold(
             onSuccess = { regions ->
-                println("✅ [KvcConnector] Получено регионов: ${regions.size}")
+                println("KvcConnector: Получено регионов: ${regions.size}")
                 val regionInfoList = regions.map { region ->
                     GetRegions.RegionInfo(
                         id = region.id.toString(),
@@ -50,44 +59,100 @@ class KvcConnector @Inject constructor(
                 Result.success(regionInfoList)
             },
             onFailure = { error ->
-                println("❌ [KvcConnector] Ошибка: ${error.message}")
+                println("KvcConnector: Ошибка getRegions: ${error.message}")
                 Result.failure(error)
             }
         )
     }
 
+    // ==================== АККАУНТЫ ====================
+
     /**
-     * получить аккаунт
+     * ✅ ИСПРАВЛЕНО: интеграция с CaptchaService
      */
     override suspend fun getAccounts(
         accountNumber: String,
-        regionId: String?
+        regionId: String?,
+        login: String?
     ): Result<List<GetAccounts.AccountInfo>> {
-        println("🔍 [KvcConnector] Получение ЛС $accountNumber в регионе $regionId")
+        println("KvcConnector: getAccounts($accountNumber, regionId=$regionId)")
+
         return try {
             val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
-                "Для КВЦ необходимо указать регион"
+                "Region ID обязателен для КВЦ"
             }
 
-            val locations = kvcRepository.getLocationsForRegion(regionIdInt)
-                .getOrElse { return Result.failure(it) }
+            // 1. Проверяем наличие токена капчи
+            val captchaResult = captchaService.getValidCaptchaToken(
+                providerId = providerId,
+                accountNumber = accountNumber
+            )
 
-            kvcRepository.getAccount(
-                locations = locations,
+            val captchaToken = when (captchaResult) {
+                is CaptchaResult.Success -> captchaResult.token
+                is CaptchaResult.ShowCaptcha -> {
+                    // Нет токена - нужно показать капчу
+                    println("KvcConnector: Требуется капча для $accountNumber")
+                    return Result.failure(
+                        CaptchaRequiredException("Требуется пройти проверку капчи")
+                    )
+                }
+            }
+
+            println("KvcConnector: Используем сохранённый токен капчи")
+
+            // 2. Вызываем API с токеном капчи
+            val accountResult = kvcRepository.getAccount(
                 accountNumber = accountNumber,
-                target = 0
-            ).map {
-                listOf(GetAccounts.AccountInfo(accountNumber = accountNumber))
-            }
+                regionId = regionIdInt,
+                captchaToken = captchaToken
+            )
+
+            accountResult.fold(
+                onSuccess = { accountInfo ->
+                    println("KvcConnector: ✅ Аккаунт найден: ${accountInfo.account}")
+
+                    // 3. Токен валидный - сохраняем его (на случай если был новый)
+                    captchaService.saveCaptchaToken(
+                        providerId = providerId,
+                        accountNumber = accountNumber,
+                        captchaToken = captchaToken
+                    )
+
+                    Result.success(
+                        listOf(
+                            GetAccounts.AccountInfo(
+                                accountNumber = accountInfo.account
+                            )
+                        )
+                    )
+                },
+                onFailure = { error ->
+                    // 4. Обработка ошибки капчи
+                    if (error is CaptchaRequiredException) {
+                        println("KvcConnector: ❌ Ошибка капчи - инвалидируем токен")
+                        captchaService.invalidateCaptchaToken(
+                            providerId = providerId,
+                            accountNumber = accountNumber
+                        )
+                    }
+
+                    Result.failure(error)
+                }
+            )
         } catch (e: Exception) {
-            println("❌ [KvcConnector] Ошибка: ${e.message}")
+            println("KvcConnector: Ошибка getAccounts: ${e.message}")
             Result.failure(e)
         }
     }
 
+    // ==================== СЧЁТЧИКИ ====================
 
     /**
-     * Загрузка счётчиков для аккаунта КВЦ
+     * ✅ ИСПРАВЛЕНО: новый API репозитория
+     * - getAccount() возвращает ID (UUID)
+     * - getMeters(abonentId) вместо getMeters(location, account)
+     * - Сохраняем location в cacheData для submitReading
      */
     override suspend fun getMeters(
         accountNumber: String,
@@ -95,31 +160,61 @@ class KvcConnector @Inject constructor(
     ): Result<GetMeters.GetMetersResult> {
         return try {
             val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
-                "Для КВЦ необходимо указать регион"
+                "Region ID обязателен для КВЦ"
             }
 
-            println("🔍 [KvcConnector] Загрузка счётчиков для ЛС $accountNumber")
+            println("KvcConnector: getMeters($accountNumber)")
 
-            // ШАГ 1: Конфигурации БД
+            // 1. Получаем locations (нужны для submitReading)
             val locations = kvcRepository.getLocationsForRegion(regionIdInt)
                 .getOrElse { return Result.failure(it) }
 
-            // ШАГ 2: Ищем абонента
+            if (locations.isEmpty()) {
+                return Result.failure(Exception("Не найдены населённые пункты для региона"))
+            }
+
+            val location = locations.first()
+
+            // 2. Проверяем токен капчи
+            val captchaResult = captchaService.getValidCaptchaToken(
+                providerId = providerId,
+                accountNumber = accountNumber
+            )
+
+            val captchaToken = when (captchaResult) {
+                is CaptchaResult.Success -> captchaResult.token
+                is CaptchaResult.ShowCaptcha -> {
+                    println("KvcConnector: Требуется капча для getMeters")
+                    return Result.failure(
+                        CaptchaRequiredException("Требуется пройти проверку капчи")
+                    )
+                }
+            }
+
+            // 3. Получаем информацию о аккаунте (для abonentId)
             val abonentInfo = kvcRepository.getAccount(
-                locations = locations,
                 accountNumber = accountNumber,
-                target = 0
-            ).getOrElse { return Result.failure(it) }
+                regionId = regionIdInt,
+                captchaToken = captchaToken
+            ).getOrElse { error ->
+                if (error is CaptchaRequiredException) {
+                    captchaService.invalidateCaptchaToken(providerId, accountNumber)
+                }
+                return Result.failure(error)
+            }
 
             val address = abonentInfo.getFullAddress()
+            val abonentId = abonentInfo.id
 
-            // ШАГ 3: Получаем счётчики
-            val kvcCounters = kvcRepository.getMeters(
-                location = abonentInfo.location,
-                accountNumber = accountNumber
-            ).getOrElse { return Result.failure(it) }
+            println("KvcConnector: abonentId=$abonentId")
 
-            // ШАГ 4: Маппинг в универсальный формат
+            // 4. Получаем счётчики по abonentId (новый API!)
+            val kvcCounters = kvcRepository.getMeters(abonentId = abonentId)
+                .getOrElse { return Result.failure(it) }
+
+            println("KvcConnector: Найдено счётчиков: ${kvcCounters.size}")
+
+            // 5. Фильтруем и мапим счётчики
             val meters = kvcCounters
                 .filter { it.canEdit() }
                 .map { counter ->
@@ -137,27 +232,28 @@ class KvcConnector @Inject constructor(
                     )
                 }
 
-            println("✅ [KvcConnector] Загружено ${meters.size} счётчиков")
+            println("KvcConnector: Доступно для передачи: ${meters.size}")
 
+            // 6. Сохраняем данные для submitReading
             Result.success(
                 GetMeters.GetMetersResult(
                     meters = meters,
                     //address = address,
-                    cacheData = mapOf<String, Any>(
-                        "location" to abonentInfo.location,
-                        "counters" to kvcCounters
+                    cacheData = mapOf(
+                        "location" to location,          // ← Для submitReading
+                        "abonentId" to abonentId,        // ← Для других запросов
+                        "counters" to kvcCounters        // ← Для submitReading
                     )
                 )
             )
         } catch (e: Exception) {
-            println("❌ [KvcConnector] Ошибка: ${e.message}")
+            println("KvcConnector: Ошибка getMeters: ${e.message}")
             Result.failure(e)
         }
     }
 
-    /**
-     * Получить историю показаний счётчика
-     */
+    // ==================== ИСТОРИЯ ====================
+
     override suspend fun getMeterHistory(
         counterId: String,
         accountNumber: String,
@@ -169,55 +265,44 @@ class KvcConnector @Inject constructor(
             val cache = cacheData as? Map<String, Any>
             val location = cache?.get("location") as? KvcLocationDto
 
+            // Если location есть в кеше - используем его
             val actualLocation = if (location != null) {
                 location
             } else {
-                val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
-                    "Для КВЦ необходимо указать регион"
-                }
-
+                // Иначе запрашиваем заново
+                val regionIdInt = requireNotNull(regionId?.toIntOrNull())
                 val locations = kvcRepository.getLocationsForRegion(regionIdInt)
                     .getOrElse { return Result.failure(it) }
-
-                val abonentInfo = kvcRepository.getAccount(
-                    locations = locations,
-                    accountNumber = accountNumber,
-                    target = 0
-                ).getOrElse { return Result.failure(it) }
-
-                abonentInfo.location
+                locations.firstOrNull() ?: return Result.failure(
+                    Exception("Не найдены населённые пункты")
+                )
             }
 
-            // ✅ Загружаем историю (это Result!)
             val historyResult = kvcRepository.getMeterHistory(
                 location = actualLocation,
                 accountNumber = accountNumber,
                 meterId = counterId.toInt()
             )
 
-            // ✅ Извлекаем List из Result
-            val history: List<KvcMeterHistoryDto> = historyResult.getOrElse {
-                return Result.failure(it)
-            }
+            val history = historyResult.getOrElse { return Result.failure(it) }
 
-            // ✅ Теперь можно вызвать mapNotNull
             val entries = history.mapNotNull { entry ->
                 try {
                     val datePart = entry.datB.substringBefore("T")
                     val parts = datePart.split("-")
+
                     if (parts.size == 3) {
                         val year = parts[0].toInt()
                         val month = parts[1].toInt()
+
                         GetMeterHistory.MeterHistory(
                             month = month,
                             year = year,
                             value = entry.valLst.toInt(),
                             consumption = entry.diff.toInt()
                         )
-                    } else {
-                        null
-                    }
-                } catch (_: Exception) {
+                    } else null
+                } catch (e: Exception) {
                     null
                 }
             }
@@ -228,30 +313,8 @@ class KvcConnector @Inject constructor(
         }
     }
 
-    /**
-     * Получить минимально допустимое показание для валидации (КВЦ)
-     *
-     * Логика для КВЦ:
-     * 1. Загружаем историю показаний через kvcRepository.getCounterHistory()
-     * 2. Берём первую запись (последний период передачи)
-     * 3. Определяем текущий месяц и год
-     * 4. Сравниваем текущий месяц с месяцем из datB первой записи:
-     *    - Если совпадают (показания за текущий месяц уже передавали):
-     *      → Минимум = valPr (предыдущее показание данного периода)
-     *    - Если не совпадают (еще не передавали в текущем месяце):
-     *      → Минимум = valLst (показание переданное в данный период)
-     *
-     * Примечание:
-     * - История возвращается НЕ преобразованной в HistoryEntry
-     * - Работаем напрямую с List<KvcCounterHistoryDto>
-     * - Если истории нет — возвращаем null (валидации не будет)
-     *
-     * @param counterId API ID счётчика (idCnt)
-     * @param accountNumber Номер лицевого счёта
-     * @param regionId ID региона (обязательно для КВЦ)
-     * @param cacheData Кеш с location для оптимизации запросов
-     * @return Result с минимальным значением или null
-     */
+    // ==================== МИНИМАЛЬНОЕ ЗНАЧЕНИЕ ====================
+
     override suspend fun getMinimumAllowedValue(
         counterId: String,
         accountNumber: String,
@@ -259,101 +322,85 @@ class KvcConnector @Inject constructor(
         cacheData: Any?
     ): Result<Int?> {
         return try {
-            println("🔍 [KvcConnector] Получаем минимальное значение для счётчика $counterId")
+            println("KvcConnector: getMinimumAllowedValue($counterId)")
 
-            // ШАГ 1: Получаем location из кеша или загружаем
             @Suppress("UNCHECKED_CAST")
             val cache = cacheData as? Map<*, *>
             val location = cache?.get("location") as? KvcLocationDto
 
             val actualLocation = if (location != null) {
-                println("✅ [KvcConnector] Используем location из кеша")
+                println("KvcConnector: Используем location из cache")
                 location
             } else {
-                println("⚠️ [KvcConnector] Location не найден в кеше, загружаем...")
-                val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
-                    "Для КВЦ необходимо указать регион"
-                }
-
+                println("KvcConnector: Location нет в cache, запрашиваем...")
+                val regionIdInt = requireNotNull(regionId?.toIntOrNull())
                 val locations = kvcRepository.getLocationsForRegion(regionIdInt)
                     .getOrElse { return Result.failure(it) }
-
-                val abonentInfo = kvcRepository.getAccount(
-                    locations = locations,
-                    accountNumber = accountNumber,
-                    target = 0
-                ).getOrElse { return Result.failure(it) }
-
-                abonentInfo.location
+                locations.firstOrNull() ?: return Result.failure(
+                    Exception("Не найдены населённые пункты")
+                )
             }
 
-            // ШАГ 2: Загружаем СЫРУЮ историю (KvcCounterHistoryDto)
             val historyResult = kvcRepository.getMeterHistory(
                 location = actualLocation,
                 accountNumber = accountNumber,
                 meterId = counterId.toInt()
             )
 
-            val history: List<KvcMeterHistoryDto> = historyResult.getOrElse {
-                println("❌ [KvcConnector] Не удалось загрузить историю: ${it.message}")
+            val history = historyResult.getOrElse {
+                println("KvcConnector: Ошибка getMeterHistory: ${it.message}")
                 return Result.failure(it)
             }
 
-            // ШАГ 3: Проверяем, есть ли записи в истории
             if (history.isEmpty()) {
-                println("⚠️ [KvcConnector] История пуста — валидации не будет")
+                println("KvcConnector: История пуста, минимум не определён")
                 return Result.success(null)
             }
 
-            // ШАГ 4: Берём первую запись (последний период передачи)
             val firstEntry = history.first()
 
-            // ШАГ 5: Парсим дату из datB
-            val datePart = firstEntry.datB.substringBefore("T") // "2026-01-01T00:00:00" → "2026-01-01"
+            // Парсим дату
+            val datePart = firstEntry.datB.substringBefore("T")
             val parts = datePart.split("-")
 
             if (parts.size != 3) {
-                println("❌ [KvcConnector] Неверный формат даты: ${firstEntry.datB}")
-                return Result.failure(Exception("Неверный формат даты в истории"))
+                println("KvcConnector: Неверный формат даты: ${firstEntry.datB}")
+                return Result.failure(Exception("Неверный формат даты"))
             }
 
             val entryYear = parts[0].toInt()
             val entryMonth = parts[1].toInt()
 
-            // ШАГ 6: Определяем текущий месяц и год
+            // Текущая дата
             val now = java.util.Calendar.getInstance()
             val currentYear = now.get(java.util.Calendar.YEAR)
-            val currentMonth = now.get(java.util.Calendar.MONTH) + 1 // Calendar.MONTH: 0-11
+            val currentMonth = now.get(java.util.Calendar.MONTH) + 1
 
-            // ШАГ 7: Логика выбора минимума
+            // Логика выбора минимума
             val minValue = if (currentYear == entryYear && currentMonth == entryMonth) {
-                // Совпадает: показания за текущий месяц уже передавали
-                // Берём valPr (предыдущее показание данного периода)
+                // Текущий месяц - берём valPr
                 val value = firstEntry.valPr.toInt()
-                println("✅ [KvcConnector] Текущий месяц = период истории ($currentMonth/$currentYear)")
-                println("   Минимум = valPr = $value (предыдущее показание периода)")
+                println("KvcConnector: Текущий месяц ($currentMonth/$currentYear)")
+                println("KvcConnector: Минимум = valPr = $value")
                 value
             } else {
-                // Не совпадает: еще не передавали в текущем месяце
-                // Берём valLst (показание переданное в данный период)
+                // Другой месяц - берём valLst
                 val value = firstEntry.valLst.toInt()
-                println("✅ [KvcConnector] Текущий месяц ($currentMonth/$currentYear) ≠ период истории ($entryMonth/$entryYear)")
-                println("   Минимум = valLst = $value (показание переданное в период)")
+                println("KvcConnector: Прошлый месяц ($entryMonth/$entryYear)")
+                println("KvcConnector: Минимум = valLst = $value")
                 value
             }
 
             Result.success(minValue)
-
         } catch (e: Exception) {
-            println("❌ [KvcConnector] Ошибка получения минимума: ${e.message}")
+            println("KvcConnector: Ошибка getMinimumAllowedValue: ${e.message}")
             e.printStackTrace()
             Result.failure(e)
         }
     }
 
-    /**
-     * Передача показаний
-     */
+    // ==================== ОТПРАВКА ПОКАЗАНИЙ ====================
+
     override suspend fun submitReading(
         counterId: String,
         accountNumber: String,
@@ -363,7 +410,7 @@ class KvcConnector @Inject constructor(
         cacheData: Any?
     ): Result<Unit> {
         return try {
-            println("📤 [KvcConnector] Отправка показания: счётчик $counterId = $value")
+            println("KvcConnector: submitReading($counterId, value=$value)")
 
             @Suppress("UNCHECKED_CAST")
             val cache = cacheData as? Map<String, Any>
@@ -371,37 +418,45 @@ class KvcConnector @Inject constructor(
             val kvcCounters: List<KvcMetersDto>
 
             if (cache != null && cache.containsKey("location") && cache.containsKey("counters")) {
-                println("✅ [KvcConnector] Используем кеш из ViewModel")
+                println("KvcConnector: Используем данные из ViewModel cache")
                 location = cache["location"] as KvcLocationDto
                 @Suppress("UNCHECKED_CAST")
                 kvcCounters = cache["counters"] as List<KvcMetersDto>
             } else {
-                println("⚠️ [KvcConnector] Кеш пуст, загружаем данные через API")
-                val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
-                    "Для КВЦ необходимо указать регион"
-                }
+                println("KvcConnector: Cache пустой, запрашиваем данные через API")
+                val regionIdInt = requireNotNull(regionId?.toIntOrNull())
 
                 val locations = kvcRepository.getLocationsForRegion(regionIdInt)
                     .getOrElse { return Result.failure(it) }
+                location = locations.firstOrNull() ?: return Result.failure(
+                    Exception("Не найдены населённые пункты")
+                )
+
+                // Нужен captchaToken для getAccount
+                val captchaResult = captchaService.getValidCaptchaToken(providerId, accountNumber)
+                val captchaToken = when (captchaResult) {
+                    is CaptchaResult.Success -> captchaResult.token
+                    is CaptchaResult.ShowCaptcha -> {
+                        return Result.failure(
+                            CaptchaRequiredException("Требуется пройти проверку капчи")
+                        )
+                    }
+                }
 
                 val abonentInfo = kvcRepository.getAccount(
-                    locations = locations,
                     accountNumber = accountNumber,
-                    target = 0
-                ).getOrElse { return Result.failure(it) }
+                    regionId = regionIdInt,
+                    captchaToken = captchaToken
+                ).getOrElse {return Result.failure(it) }
 
-                location = abonentInfo.location
-
-                kvcCounters = kvcRepository.getMeters(
-                    location = location,
-                    accountNumber = accountNumber
-                ).getOrElse { return Result.failure(it) }
+                kvcCounters = kvcRepository.getMeters(abonentId = abonentInfo.id)
+                    .getOrElse { return Result.failure(it) }
             }
 
             val counter = kvcCounters.firstOrNull { it.idCnt.toString() == counterId }
                 ?: return Result.failure(Exception("Счётчик с ID $counterId не найден"))
 
-            println("📋 [KvcConnector] Найден счётчик: ${counter.servName} №${counter.number}")
+            println("KvcConnector: Отправка для счётчика: ${counter.servName} №${counter.number}")
 
             val result = kvcRepository.submitReading(
                 counter = counter,
@@ -411,36 +466,34 @@ class KvcConnector @Inject constructor(
             )
 
             if (result.isSuccess) {
-                println("✅ [KvcConnector] Показание успешно передано")
+                println("KvcConnector: ✅ Показания успешно отправлены")
             }
 
             result
         } catch (e: Exception) {
-            println("❌ [KvcConnector] Ошибка: ${e.message}")
+            println("KvcConnector: Ошибка submitReading: ${e.message}")
             Result.failure(e)
         }
     }
 
+    // ==================== ПЕРИОД ПЕРЕДАЧИ ====================
+
     override suspend fun getTransmissionPeriod(
         accountNumber: String,
-        regionId: Int?
+        regionId: String?
     ): Result<GetTransmissionPeriod.TransmissionPeriod> {
-        if (regionId == null) {
-            return Result.failure(Exception("Для КВЦ требуется указать регион"))
-        }
+        val regionIdInt = requireNotNull(regionId?.toIntOrNull())
 
         return try {
-            val locations = kvcRepository.getLocationsForRegion(regionId)
+            val locations = kvcRepository.getLocationsForRegion(regionIdInt)
                 .getOrElse { return Result.failure(it) }
 
-            val abonentInfo = kvcRepository.getAccount(
-                locations = locations,
-                accountNumber = accountNumber,
-                target = 0
-            ).getOrElse { return Result.failure(it) }
+            val location = locations.firstOrNull() ?: return Result.failure(
+                Exception("Не найдены населённые пункты")
+            )
 
             val period = kvcRepository.getTransmissionPeriod(
-                location = abonentInfo.location,
+                location = location,
                 accountNumber = accountNumber
             ).getOrElse { return Result.failure(it) }
 
@@ -455,13 +508,14 @@ class KvcConnector @Inject constructor(
         }
     }
 
-    // Вспомогательные функции
+    // ==================== УТИЛИТЫ ====================
+
     private fun parseValueAsInt(value: String): Int? {
         if (value.isBlank() || value == "0") return null
         return try {
             val cleaned = value.trim().replace(",", ".")
             cleaned.toDoubleOrNull()?.toInt()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             null
         }
     }
