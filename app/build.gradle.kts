@@ -112,4 +112,7 @@ dependencies {
     // Debug
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+
+    // ✅ ДОБАВИТЬ (Security для шифрования токенов)
+    implementation(libs.androidx.security.crypto)
 }

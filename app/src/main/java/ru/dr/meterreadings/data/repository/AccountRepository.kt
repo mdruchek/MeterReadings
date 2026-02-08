@@ -40,9 +40,25 @@ class AccountRepository @Inject constructor(
     /**
      * Получить account по ID
      */
-    fun getAccountById(accountId: String): Flow<AccountDomainModel?> {
+    fun getAccountByIdFlow(accountId: String): Flow<AccountDomainModel?> {
         return accountDao.getById(accountId).map { it?.toDomain() }
     }
+
+    /**
+     * Получить account по ID (suspend-версия для одноразового запроса)
+     */
+    suspend fun getAccountByIdOnce(accountId: String): AccountDomainModel {
+        return accountDao.getById(accountId).first()?.toDomain()
+            ?: throw NoSuchElementException("Account with id $accountId not found")
+    }
+
+    /**
+     * Получить account по номеру лицевого счёта
+     */
+    suspend fun findByAccountNumber(accountNumber: String): AccountDomainModel? {
+        return accountDao.findByAccountNumber(accountNumber)?.toDomain()
+    }
+
 
     /**
      * Получить все accounts конкретного провайдера
@@ -61,7 +77,7 @@ class AccountRepository @Inject constructor(
         profileId: String,
         providerId: Long,
         accountNumber: String,
-        regionId: Int? = null,
+        regionId: String? = null,
         login: String? = null,
         password: String? = null
     ): String {

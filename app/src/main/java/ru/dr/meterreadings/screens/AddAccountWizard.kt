@@ -23,11 +23,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ru.dr.meterreadings.domain.connector.GetAccounts
 import ru.dr.meterreadings.models.domain.AuthType
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
 import ru.dr.meterreadings.models.domain.Type
 import ru.dr.meterreadings.models.ui.ProviderUiModel
 import ru.dr.meterreadings.ui.components.ErrorDialog
+import ru.dr.meterreadings.ui.components.CaptchaDialog
 import ru.dr.meterreadings.viewmodels.AddAccountViewModel
 
 @Composable
@@ -71,6 +73,26 @@ fun AddAccountWizard(
 
     var login by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+
+    // Капча
+    val showCaptcha by viewModel.showCaptcha.collectAsStateWithLifecycle()
+    val captchaUrl by viewModel.captchaUrl.collectAsStateWithLifecycle()
+
+    // ✅ МНОЖЕСТВЕННЫЙ ВЫБОР
+    var selectedAccountNumbers by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    // ✅ Автоматически выбираем все аккаунты при загрузке
+    LaunchedEffect(searchedAccounts) {
+        searchedAccounts?.let { accounts ->
+            selectedAccountNumbers = accounts.map { it.accountNumber }.toSet()
+        }
+    }
+
+    LaunchedEffect(searchedAccounts) {
+        if (searchedAccounts != null && currentStep == 2) {
+            currentStep = 3
+        }
+    }
 
     // =====================================================
     // АВТОМАТИЧЕСКАЯ НАВИГАЦИЯ ПОСЛЕ СОЗДАНИЯ
@@ -170,7 +192,7 @@ fun AddAccountWizard(
                             null -> false
                         }
                     }
-                    3 -> searchedAccounts != null && !isCreating
+                    3 -> selectedAccountNumbers.isNotEmpty() && !isCreating
                     else -> false
                 },
                 onNext = {
@@ -186,44 +208,52 @@ fun AddAccountWizard(
                                 when (selectedProvider?.authType) {
                                     AuthType.ACCOUNT_NUMBER -> {
                                         if (accountNumber.isNotBlank()) {
-                                            viewModel.getAccounts(  // ← для ЛС
+                                            viewModel.getAccounts(
                                                 providerId = selectedProviderId!!,
                                                 accountNumber = accountNumber,
-                                                regionId = selectedRegionId
+                                                regionId = selectedRegionId,
+                                                login = null
                                             )
-                                            currentStep = 3
+                                            // ✅ НЕ переходим на шаг 3 сразу!
+                                            // Переход будет после успешного getAccounts()
                                         }
                                     }
                                     AuthType.LOGIN_PASSWORD -> {
                                         if (login.isNotBlank() && password.isNotBlank()) {
-                                            viewModel.authorizeUser(  // ← ИЗМЕНИТЬ на authorizeUser
+                                            viewModel.authorizeUser(
                                                 providerId = selectedProviderId!!,
                                                 login = login,
                                                 password = password,
                                                 regionId = selectedRegionId
                                             )
-                                            currentStep = 3
+                                            // ✅ Тоже не переходим сразу
                                         }
                                     }
-                                    null -> {}
+                                    null -> {
+                                        // Ошибка
+                                    }
                                 }
                             }
                         }
-
                         3 -> {
                             if (selectedProviderId != null) {
-                                val accountData = when (selectedProvider?.authType) {
-                                    AuthType.ACCOUNT_NUMBER -> accountNumber
-                                    AuthType.LOGIN_PASSWORD -> login  // Сохраняем только email как identifier
-                                    null -> accountNumber
+                                // ✅ Фильтруем только выбранные аккаунты
+                                val accountsToAdd = searchedAccounts?.filter {
+                                    selectedAccountNumbers.contains(it.accountNumber)
                                 }
 
-                                viewModel.createAccount(
-                                    profileId = profile.id,
-                                    accountNumber = accountData,
-                                    login = if (selectedProvider?.authType == AuthType.LOGIN_PASSWORD) login else null,
-                                    password = if (selectedProvider?.authType == AuthType.LOGIN_PASSWORD) password else null
-                                )
+                                if (accountsToAdd.isNullOrEmpty()) {
+                                    viewModel.showError(
+                                        title = "Выберите аккаунты",
+                                        message = "Пожалуйста, выберите хотя бы один аккаунт"
+                                    )
+                                } else {
+                                    // ✅ Добавляем все выбранные аккаунты
+                                    viewModel.createAccounts(
+                                        profileId = profile.id,
+                                        accountsInfo = accountsToAdd
+                                    )
+                                }
                             }
                         }
                     }
@@ -500,6 +530,7 @@ fun AddAccountWizard(
                     item {
                         when {
                             isSearching -> {
+                                // Загрузка...
                                 Box(
                                     modifier = Modifier.fillMaxWidth(),
                                     contentAlignment = Alignment.Center
@@ -522,94 +553,81 @@ fun AddAccountWizard(
                             }
 
                             searchedAccounts != null -> {
-                                Card(modifier = Modifier.fillMaxWidth()) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                Icons.Default.CheckCircle,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(32.dp)
-                                            )
-                                            Spacer(Modifier.width(12.dp))
-                                            Text(
-                                                text = when (selectedProvider?.authType) {
-                                                    AuthType.LOGIN_PASSWORD -> "Авторизация успешна!"
-                                                    else -> "Аккаунт найден!"
-                                                },
-                                                style = MaterialTheme.typography.titleMedium
-                                            )
-                                        }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Выберите аккаунты для добавления",
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
 
-                                        Spacer(Modifier.height(16.dp))
-
-                                        when (selectedProvider?.authType) {
-                                            AuthType.LOGIN_PASSWORD -> {
-                                                // Отображение для авторизации
-                                                Text(
-                                                    text = "👤 $login",
-                                                    style = MaterialTheme.typography.bodyLarge
-                                                )
-
-                                                Spacer(Modifier.height(8.dp))
-
-                                                regions.find { it.id == selectedRegionId }?.let { region ->
-                                                    Text(
-                                                        text = "🌍 ${region.name}",
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-
-                                                // Показать информацию о токене (опционально)
-                                                authData?.accessTokenExpires?.let { expires ->
-                                                    Spacer(Modifier.height(8.dp))
-                                                    Text(
-                                                        text = "⏰ Токен действителен до: $expires",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                            }
-
-                                            else -> {
-                                                // Отображение для поиска по ЛС
-                                                searchedAccounts!!.forEach { account ->
-                                                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                                                        Text(
-                                                            text = "🆔 Л/С: ${account.accountNumber}",
-                                                            style = MaterialTheme.typography.bodyLarge
-                                                        )
-
-                                                        account.address?.let { address ->
-                                                            Spacer(Modifier.height(4.dp))
-                                                            Text(
-                                                                text = "📍 $address",
-                                                                style = MaterialTheme.typography.bodyMedium,
-                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                            )
-                                                        }
-
-                                                        account.regionId?.let { regionId ->
-                                                            Spacer(Modifier.height(4.dp))
-                                                            Text(
-                                                                text = "🌍 Регион: $regionId",
-                                                                style = MaterialTheme.typography.bodySmall,
-                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                            )
-                                                        }
-                                                    }
-                                                }
+                                    // ✅ КНОПКА "Выбрать всё"
+                                    TextButton(
+                                        onClick = {
+                                            selectedAccountNumbers = if (selectedAccountNumbers.size == searchedAccounts!!.size) {
+                                                emptySet() // Снять все
+                                            } else {
+                                                searchedAccounts!!.map { it.accountNumber }.toSet() // Выбрать все
                                             }
                                         }
+                                    ) {
+                                        Text(
+                                            text = if (selectedAccountNumbers.size == searchedAccounts!!.size) {
+                                                "Снять все"
+                                            } else {
+                                                "Выбрать все"
+                                            }
+                                        )
                                     }
                                 }
+
+                                Spacer(Modifier.height(8.dp))
+
+                                Text(
+                                    text = "Выбрано: ${selectedAccountNumbers.size} из ${searchedAccounts!!.size}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
+                        }
+                    }
+
+                    // ✅ СПИСОК АККАУНТОВ С ЧЕКБОКСАМИ
+                    searchedAccounts?.let { accounts ->
+                        items(accounts) { account ->
+                            AccountCard(
+                                account = account,
+                                isSelected = selectedAccountNumbers.contains(account.accountNumber),
+                                onToggle = {
+                                    selectedAccountNumbers = if (selectedAccountNumbers.contains(account.accountNumber)) {
+                                        selectedAccountNumbers - account.accountNumber // Убрать
+                                    } else {
+                                        selectedAccountNumbers + account.accountNumber // Добавить
+                                    }
+                                }
+                            )
+                            Spacer(Modifier.height(8.dp))
                         }
                     }
                 }
             }
         }
+    }
+
+    // ==================== МОДАЛЬНОЕ ОКНО КАПЧИ ====================
+    if (showCaptcha) {
+        CaptchaDialog(
+            onCaptchaCompleted = { session ->
+                println("✅ [AddAccountWizard] Got fresh captcha token")
+                viewModel.onCaptchaCompleted(session)
+            },
+            onDismiss = {
+                println("⚠️ [AddAccountWizard] Captcha dialog dismissed")
+                viewModel.dismissCaptcha()
+            }
+        )
     }
 }
 
@@ -667,6 +685,66 @@ fun ProviderCard(
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun AccountCard(
+    account: GetAccounts.AccountInfo,
+    isSelected: Boolean,
+    onToggle: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected)
+                MaterialTheme.colorScheme.primaryContainer
+            else
+                MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // ✅ ЧЕКБОКС
+            Checkbox(
+                checked = isSelected,
+                onCheckedChange = { onToggle() }
+            )
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                // Номер счёта
+                Text(
+                    text = "🆔 ${account.accountNumber}",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+
+                // Адрес
+                account.address?.let { address ->
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "📍 $address",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Регион
+                account.regionId?.let { regionId ->
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "🌍 Регион: $regionId",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

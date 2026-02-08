@@ -66,16 +66,25 @@ interface GetRegions {
 interface GetAccounts {
     /**
      * Поиск лицевых счетов по номеру
+     *
+     * @param accountNumber Номер лицевого счёта
+     * @param regionId ID региона (опционально)
+     * @param login Логин пользователя (для ТНС обязателен)
      */
     suspend fun getAccounts(
         accountNumber: String,
         regionId: String? = null,
+        login: String? = null
     ): Result<List<AccountInfo>>
 
     data class AccountInfo(
         val accountNumber: String,
         val address: String? = null,
-        val regionId: String? = null
+        val regionId: String? = null,
+        val login: String? = null,
+        val submissionStartDay: Int?,
+        val submissionEndDay: Int?,
+        val additionalInfo: String?   // Любая дополнительная информация
     )
 }
 
@@ -99,7 +108,7 @@ interface SubmitReadings {
 interface GetTransmissionPeriod {
     suspend fun getTransmissionPeriod(
         accountNumber: String,
-        regionId: Int? = null
+        regionId: String? = null
     ): Result<TransmissionPeriod>
 
     data class TransmissionPeriod(

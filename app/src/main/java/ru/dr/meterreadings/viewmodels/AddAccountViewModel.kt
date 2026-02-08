@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import ru.dr.meterreadings.data.remote.dto.kvc.CaptchaRequiredException
 import ru.dr.meterreadings.data.repository.AccountRepository
 import ru.dr.meterreadings.data.repository.ProviderRepository
 import ru.dr.meterreadings.domain.connector.GetRegions
@@ -12,15 +13,19 @@ import ru.dr.meterreadings.domain.connector.GetAccounts
 import ru.dr.meterreadings.domain.connector.ProviderConnectorFactory
 import ru.dr.meterreadings.domain.connector.AppAuth
 import ru.dr.meterreadings.domain.connector.UserAuth
+import ru.dr.meterreadings.domain.service.CaptchaService
 import ru.dr.meterreadings.models.domain.ProviderDomainModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
+import ru.dr.meterreadings.ui.components.CaptchaSession
+import ru.dr.meterreadings.utils.toUserFriendlyMessage
 import javax.inject.Inject
 
 @HiltViewModel
 class AddAccountViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val providerRepository: ProviderRepository,
-    private val connectorFactory: ProviderConnectorFactory
+    private val connectorFactory: ProviderConnectorFactory,
+    private val captchaService: CaptchaService
 ) : ViewModel() {
 
     // =====================================================
@@ -45,9 +50,21 @@ class AddAccountViewModel @Inject constructor(
     val shouldResetToStep1: StateFlow<Boolean> = _shouldResetToStep1.asStateFlow()
 
     fun showError(title: String, message: String) {
-        _errorState.value = ErrorState(title, message)
+        // ✅ 1. Логируем ПОЛНУЮ ошибку (для разработчика)
+        println("❌ [AddAccountVM] Ошибка: $title")
+        println("   Исходное сообщение: $message")
+
+        // ✅ 2. Фильтруем техническую информацию
+        val userMessage = Exception(message).toUserFriendlyMessage()
+
+        // ✅ 3. Показываем ПОНЯТНОЕ сообщение (для пользователя)
+        _errorState.value = ErrorState(
+            title = title,
+            message = userMessage
+        )
         _shouldResetToStep1.value = true
-        println("❌ [AddAccountVM] Ошибка: $title - $message")
+
+        println("   Показано пользователю: $userMessage")
     }
 
     fun dismissError() {
@@ -262,8 +279,14 @@ class AddAccountViewModel @Inject constructor(
 // АВТОРИЗАЦИЯ ПОЛЬЗОВАТЕЛЯ (для ТНС)
 // =====================================================
 
+    // =====================================================
+    // АВТОРИЗАЦИЯ ПОЛЬЗОВАТЕЛЯ (для ТНС)
+    // =====================================================
     private val _authData = MutableStateFlow<UserAuth.UserAuthData?>(null)
     val authData: StateFlow<UserAuth.UserAuthData?> = _authData.asStateFlow()
+
+    // ✅ ДОБАВЛЕНО: сохраняем login для использования в getAccounts
+    private var _currentLogin: String? = null
 
     /**
      * Авторизация пользователя через UserAuth интерфейс
@@ -296,15 +319,15 @@ class AddAccountViewModel @Inject constructor(
                     result.onSuccess { authData ->
                         if (authData.authSuccess) {
                             _authData.value = authData
-                            // Создаём фейковый AccountInfo для отображения в UI
-                            _searchedAccounts.value = listOf(
-                                GetAccounts.AccountInfo(
-                                    accountNumber = login,
-                                    address = "Авторизация успешна"
-                                )
-                            )
-                            println("✅ [AddAccountVM] Авторизация успешна")
+                            _currentLogin = login // ✅ СОХРАНЯЕМ LOGIN
+
+                            // После успешной авторизации загружаем аккаунты
+                            println("✅ [AddAccountVM] Авторизация успешна, загружаем аккаунты...")
                             println("   Access token: ${authData.accessToken?.take(20)}...")
+
+                            // ✅ Вызываем getAccounts сразу после авторизации
+                            getAccounts(providerId, login, regionId)
+
                         } else {
                             showError(
                                 title = "Ошибка авторизации",
@@ -318,6 +341,7 @@ class AddAccountViewModel @Inject constructor(
                         )
                         println("❌ [AddAccountVM] Ошибка: ${error.message}")
                     }
+
                 } else {
                     showError(
                         title = "Ошибка",
@@ -345,15 +369,36 @@ class AddAccountViewModel @Inject constructor(
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
 
+    // ==================== STATE ДЛЯ КАПЧИ ====================
+
+    private val _showCaptcha = MutableStateFlow(false)
+    val showCaptcha: StateFlow<Boolean> = _showCaptcha.asStateFlow()
+
+    private val _captchaUrl = MutableStateFlow<String?>(null)
+    val captchaUrl: StateFlow<String?> = _captchaUrl.asStateFlow()
+
+    // Сохраняем данные для повтора после капчи
+    private var pendingAccountNumber: String? = null
+    private var pendingProviderId: Long? = null
+    private var pendingRegionId: String? = null
+    private var pendingLogin: String? = null
+
     /**
-     * Поиск адреса по лицевому счёту
+     * получить аккаунты
+     */
+    /**
+     * получить аккаунты
      */
     fun getAccounts(
         providerId: Long,
         accountNumber: String,
-        regionId: String?
+        regionId: String?,
+        login: String? = null  // ✅ ИСПРАВЛЕНО: используем null
     ) {
         viewModelScope.launch {
+            // ✅ Если login не передан, берём из _currentLogin или pendingLogin
+            val actualLogin = login ?: _currentLogin
+
             _isSearching.value = true
             _searchedAccounts.value = null
 
@@ -361,32 +406,50 @@ class AddAccountViewModel @Inject constructor(
                 val connector = connectorFactory.getConnector(providerId)
 
                 if (connector is GetAccounts) {
-                    println("🔍 [AddAccountVM] Поиск аккаунтов...")
+                    println("AddAccountVM: getAccounts для providerId=$providerId")
 
                     val result = connector.getAccounts(
                         accountNumber = accountNumber,
-                        regionId = regionId
+                        regionId = regionId,
+                        login = actualLogin  // ✅ Используем actualLogin
                     )
 
-                    result.onSuccess { accounts ->
-                        _searchedAccounts.value = accounts
-                        println("✅ [AddAccountVM] Найдено: ${accounts.size}")
-                    }.onFailure { error ->
-                        // ✅ Человеческое сообщение из safeNetworkCall
-                        showError(
-                            title = "Ошибка поиска",
-                            message = error.message ?: "Не удалось найти счёт"
-                        )
-                    }
+                    result
+                        .onSuccess { accounts ->
+                            _searchedAccounts.value = accounts
+                            println("AddAccountVM: Найдено аккаунтов: ${accounts.size}")
+                        }
+                        .onFailure { error ->
+                            // ✅ Обработка CaptchaRequiredException
+                            if (error is CaptchaRequiredException) {
+                                println("AddAccountVM: ❌ Требуется капча для $accountNumber")
+
+                                // Сохраняем данные для повтора
+                                pendingAccountNumber = accountNumber
+                                pendingProviderId = providerId
+                                pendingRegionId = regionId
+                                pendingLogin = actualLogin  // ✅ Сохраняем actualLogin
+
+                                // Показываем капчу
+                                _showCaptcha.value = true
+                                _captchaUrl.value = "https://smartcaptcha.yandexcloud.net/captcha?sitekey=ysc1_cVL6K8xGEFtqzLAk5vP2DkLcqWEllPeEzLm62X1T32e04c3a&invisible=true"
+                            } else {
+                                // Обычная ошибка
+                                showError(
+                                    title = "Ошибка поиска",
+                                    message = error.message ?: "Неизвестная ошибка"
+                                )
+                            }
+                        }
                 } else {
                     showError(
                         title = "Ошибка",
-                        message = "Провайдер не поддерживает поиск"
+                        message = "Провайдер не поддерживает поиск аккаунтов"
                     )
                 }
             } catch (e: Exception) {
                 showError(
-                    title = "Ошибка поиска",
+                    title = "Ошибка",
                     message = e.message ?: "Неизвестная ошибка"
                 )
                 e.printStackTrace()
@@ -394,6 +457,63 @@ class AddAccountViewModel @Inject constructor(
                 _isSearching.value = false
             }
         }
+    }
+
+    // ==================== ФУНКЦИИ ДЛЯ КАПЧИ ====================
+    /**
+     * Вызывается после успешного прохождения капчи
+     */
+    /**
+     * Вызывается после успешного прохождения капчи
+     */
+    fun onCaptchaCompleted(session: CaptchaSession) {
+        println("✅ AddAccountVM: Капча пройдена, токен: ${session.token.take(80)}...")
+
+        _showCaptcha.value = false
+
+        viewModelScope.launch {
+            val accountNumber = pendingAccountNumber
+            val providerId = pendingProviderId
+
+            if (accountNumber.isNullOrEmpty() || providerId == null) {
+                println("❌ AddAccountVM: Нет данных для повторного запроса")
+                showError("Ошибка", "Не удалось определить данные")
+                clearPendingCaptchaData()
+                return@launch
+            }
+
+            // ✅ Сохраняем токен ПЕРЕД запросом
+            captchaService.saveCaptchaSession(providerId, accountNumber, session)
+            println("✅ AddAccountVM: Сессия сохранена")
+
+            // ✅ Повторяем тот же getAccounts - он возьмёт токен из CaptchaService
+            getAccounts(
+                providerId = providerId,
+                accountNumber = accountNumber,
+                regionId = pendingRegionId,
+                login = pendingLogin
+            )
+
+            clearPendingCaptchaData()
+        }
+    }
+
+
+    /**
+     * Отмена капчи
+     */
+    fun dismissCaptcha() {
+        _showCaptcha.value = false
+        _captchaUrl.value = null
+        clearPendingCaptchaData()
+        println("AddAccountVM: Капча отменена")
+    }
+
+    private fun clearPendingCaptchaData() {
+        pendingAccountNumber = null
+        pendingProviderId = null
+        pendingRegionId = null
+        pendingLogin = null
     }
 
     fun clearSearchResult() {
@@ -411,75 +531,71 @@ class AddAccountViewModel @Inject constructor(
     val createdAccountId: StateFlow<String?> = _createdAccountId.asStateFlow()
 
     /**
-     * Создать новый аккаунт
-     *
-     * @param profileId - ID профиля
-     * @param accountNumber - номер лицевого счёта
-     * @param login - логин (опционально)
-     * @param password - пароль (опционально)
+     * Создать несколько аккаунтов одновременно
      */
-    fun createAccount(
+    fun createAccounts(
         profileId: String,
-        accountNumber: String,
-        login: String? = null,
-        password: String? = null
+        accountsInfo: List<GetAccounts.AccountInfo>
     ) {
         viewModelScope.launch {
             _isCreating.value = true
 
             try {
-                val providerId = _selectedProviderId.value
-                if (providerId == null) {
-                    showError("Ошибка", "Провайдер не выбран")
-                    return@launch
-                }
+                println("💾 [AddAccountVM] createAccounts: ${accountsInfo.size} аккаунтов")
 
-                // ✅ Получаем regionId из состояния
-                val regionId = if (_providerHasRegions.value) {
-                    val selectedRegion = _selectedRegionId.value
-                    if (selectedRegion == null) {
-                        showError("Ошибка", "Выберите регион")
-                        return@launch
+                // ✅ Используем существующую логику из createAccount()
+                accountsInfo.forEach { accountInfo ->
+                    try {
+                        // Вызываем единую логику
+                        addSingleAccount(profileId, accountInfo)
+                    } catch (e: IllegalArgumentException) {
+                        println("⚠️ [AddAccountVM] Аккаунт ${accountInfo.accountNumber} уже существует")
+                        // Продолжаем добавлять остальные
                     }
-                    selectedRegion.toIntOrNull()
-                } else {
-                    null
                 }
 
-                println("💾 [AddAccountVM] createAccount:")
-                println("   profileId: $profileId")
-                println("   providerId: $providerId")
-                println("   accountNumber: $accountNumber")
-                println("   regionId: $regionId")
+                _createdAccountId.value = "batch_${System.currentTimeMillis()}"
+                println("✅ [AddAccountVM] Все аккаунты добавлены")
 
-                // Создаём аккаунт в БД
-                val accountId = accountRepository.addAccount(
-                    profileId = profileId,
-                    providerId = providerId,
-                    accountNumber = accountNumber,
-                    regionId = regionId,
-                    login = login,
-                    password = password
-                )
-
-                _createdAccountId.value = accountId
-                println("✅ [AddAccountVM] Аккаунт создан: $accountId")
-
-            } catch (e: IllegalArgumentException) {
-                showError(
-                    title = "Аккаунт уже добавлен",
-                    message = "Лицевой счёт $accountNumber уже существует в этом профиле"
-                )
             } catch (e: Exception) {
                 showError(
                     title = "Ошибка сохранения",
-                    message = "Не удалось сохранить аккаунт: ${e.message}"
+                    message = "Не удалось сохранить аккаунты: ${e.message}"
                 )
                 e.printStackTrace()
             } finally {
                 _isCreating.value = false
             }
         }
+    }
+
+    /**
+     * Внутренняя функция для добавления одного аккаунта
+     */
+    private suspend fun addSingleAccount(
+        profileId: String,
+        accountInfo: GetAccounts.AccountInfo
+    ) {
+        val providerId = _selectedProviderId.value
+            ?: throw IllegalStateException("Провайдер не выбран")
+
+        val regionId = if (_providerHasRegions.value) {
+            _selectedRegionId.value
+                ?: throw IllegalStateException("Регион не выбран")
+        } else {
+            null
+        }
+
+        val accountId = accountRepository.addAccount(
+            profileId = profileId,
+            providerId = providerId,
+            accountNumber = accountInfo.accountNumber,
+            regionId = regionId,
+            login = accountInfo.login,
+            password = null
+        )
+
+        println("✅ [AddAccountVM] Аккаунт создан: $accountId (${accountInfo.accountNumber})")
     }
 
     /**

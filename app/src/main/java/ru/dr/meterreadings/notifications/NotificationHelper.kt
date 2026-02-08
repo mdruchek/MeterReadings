@@ -150,7 +150,13 @@ class NotificationHelper @Inject constructor(
             .setContentIntent(pendingIntent)
             .build()
 
-        notificationManager.notify(NOTIFICATION_REMINDER, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                notificationManager.notify(NOTIFICATION_REMINDER, notification)
+            }
+        } else {
+            notificationManager.notify(NOTIFICATION_REMINDER, notification)
+        }
 
         println("✅ [NotificationHelper] Напоминание показано: $providerName, счётчиков: $meterCount")
     }

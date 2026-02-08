@@ -56,6 +56,13 @@ interface AccountDao {
     fun getById(accountId: String): Flow<AccountEntity?>
 
     /**
+     * Найти account по номеру лицевого счёта (suspend-версия)
+     */
+    @Query("SELECT * FROM accounts WHERE accountNumber = :accountNumber LIMIT 1")
+    suspend fun findByAccountNumber(accountNumber: String): AccountEntity?
+
+
+    /**
      * Получить все accounts конкретного профиля
      * Flow - UI будет автоматически обновляться
      */

@@ -11,12 +11,17 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
+import ru.dr.meterreadings.data.remote.dto.tns.TnsAccountDto
+import ru.dr.meterreadings.data.remote.dto.tns.TnsAccountsResponse
 import ru.dr.meterreadings.data.remote.dto.tns.TnsAppVersionResponse
 import ru.dr.meterreadings.data.remote.dto.tns.TnsAuthData
+import ru.dr.meterreadings.data.remote.dto.tns.TnsCounterDto
+import ru.dr.meterreadings.data.remote.dto.tns.TnsCountersResponse
 import ru.dr.meterreadings.data.remote.dto.tns.TnsUserAuthResponse
 import ru.dr.meterreadings.data.remote.dto.tns.TnsUserAuthRequest
 import ru.dr.meterreadings.data.remote.dto.tns.TnsRegionDto
 import ru.dr.meterreadings.data.remote.dto.tns.TnsRegionsResponse
+import ru.dr.meterreadings.utils.safeNetworkCall
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -183,4 +188,100 @@ class TnsRepository @Inject constructor(
             Result.failure(e)
         }
     }
+
+    /**
+     * Получить список лицевых счетов пользователя
+     *
+     * API: GET /api/v1/accounts
+     *
+     * Требует авторизации через Bearer token.
+     *
+     * @param accessToken JWT токен доступа
+     * @param regionCode Код региона (например, "nn")
+     * @return Result со списком аккаунтов
+     *
+     * ✅ Обработка HTTP ошибок через safeNetworkCall
+     * ✅ БЕЗ проверки токенов (это делает Connector)
+     *
+     */
+    suspend fun getAccounts(
+        accessToken: String,
+        regionCode: String
+    ): Result<List<TnsAccountDto>> {
+        return safeNetworkCall {
+            println("🔍 [TnsRepository] Загружаем лицевые счета...")
+
+            // ✅ Используем URL с регионом
+            val regionUrl = "https://mobile-api-$regionCode.tns-e.ru"
+
+            val response = httpClient.get(
+                urlString = "$regionUrl/api/v1/accounts"
+            ) {
+                header("user-agent", "Dart/3.9 (dart:io)")
+                header("accept-encoding", "gzip")
+                header("x-api-hash", API_HASH)
+                header("authorizationtest", "Bearer $accessToken") // ✅ Заголовок из перехваченного запроса
+                header("authorization", BASIC_AUTH)
+                header("x-device-id", "TE1A.240213.009")
+                header("content-type", "application/json")
+            }
+
+            val accountsResponse = response.body<TnsAccountsResponse>()
+
+            println("✅ [TnsRepository] Загружено аккаунтов: ${accountsResponse.data.size}")
+            accountsResponse.data.forEach { account ->
+                println("  🏠 № ${account.number} | ${account.address}")
+            }
+
+            accountsResponse.data
+
+            }
+    }
+
+    /**
+     * Получить список счётчиков для указанного лицевого счёта
+     *
+     * API: GET /api/v1/counters?account=521041038358
+     *
+     * Требует авторизации через Bearer token.
+     *
+     * @param accountNumber Номер лицевого счёта
+     * @param accessToken JWT токен доступа
+     * @param regionCode Код региона (например, "nn")
+     * @return Result со списком счётчиков
+     */
+    suspend fun getCounters(
+        accountNumber: String,
+        accessToken: String,
+        regionCode: String
+    ): Result<List<TnsCounterDto>> {
+        return safeNetworkCall {
+            println("🔍 [TnsRepository] Загружаем счётчики для аккаунта $accountNumber...")
+
+            // ✅ Используем URL с регионом
+            val regionUrl = "https://mobile-api-$regionCode.tns-e.ru"
+
+            val response = httpClient.get(
+                urlString = "$regionUrl/api/v1/counters?account=$accountNumber"
+            ) {
+                header("user-agent", "Dart/3.9 (dart:io)")
+                header("accept-encoding", "gzip")
+                header("x-api-hash", API_HASH)
+                header("authorizationtest", "Bearer $accessToken")
+                header("authorization", BASIC_AUTH)
+                header("x-device-id", "TE1A.240213.009")
+                header("content-type", "application/json")
+            }
+
+            val countersResponse = response.body<TnsCountersResponse>()
+
+            println("✅ [TnsRepository] Загружено счётчиков: ${countersResponse.data.size}")
+            countersResponse.data.forEach { counter ->
+                println("   ⚡ ID ${counter.counterId} | Тариф: ${counter.tariff} | Последнее: ${counter.lastReadings.firstOrNull()?.value}")
+            }
+
+            countersResponse.data
+        }
+    }
+
 }

@@ -26,6 +26,8 @@ coil = "2.5.0"
 work = "2.9.0"
 hilt-work = "1.2.0"
 
+security-crypto = "1.1.0-alpha06"
+
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -74,6 +76,9 @@ androidx-hilt-work-compiler = { group = "androidx.hilt", name = "hilt-compiler",
 
 # Coil (загрузка изображений)
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
+
+# ✅ ДОБАВИТЬ (AndroidX Security для шифрования токенов)
+androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "security-crypto" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -41,7 +41,7 @@ data class AccountEntity(
     // Номер лицевого счета
     val accountNumber: String,
     // Логин для входа в личный кабинет (может быть null)
-    val login: String? = null,
+    val login: String?,
     // Пароль (зашифрованный, может быть null)
     val password: String? = null,
     // Технические поля
@@ -56,7 +56,7 @@ data class AccountEntity(
      *
      * Nullable для провайдеров без регионов
      */
-    val regionId: Int? = null,
+    val regionId: String?,
 )
 
 // ========================================
@@ -72,7 +72,8 @@ fun AccountEntity.toDomain(): AccountDomainModel {
         profileId = profileId,
         providerId = providerId,
         accountNumber = accountNumber,
-        regionId = regionId
+        regionId = regionId,
+        login = login
     )
 }
 
