@@ -40,6 +40,8 @@ data class AccountEntity(
     val providerId: Long,
     // Номер лицевого счета
     val accountNumber: String,
+    // UUID аккаунта
+    val accountUUID: String?,
     // Логин для входа в личный кабинет (может быть null)
     val login: String?,
     // Пароль (зашифрованный, может быть null)
@@ -71,9 +73,11 @@ fun AccountEntity.toDomain(): AccountDomainModel {
         id = id,
         profileId = profileId,
         providerId = providerId,
-        accountNumber = accountNumber,
+        number = accountNumber,
+        uuid = accountUUID,
         regionId = regionId,
-        login = login
+        login = login,
+        address = null
     )
 }
 
@@ -90,7 +94,8 @@ fun AccountDomainModel.toEntity(
         id = id,
         profileId = profileId,
         providerId = providerId,
-        accountNumber = accountNumber,
+        accountNumber = number,
+        accountUUID = uuid,
         regionId = regionId,
         login = login,
         password = password,

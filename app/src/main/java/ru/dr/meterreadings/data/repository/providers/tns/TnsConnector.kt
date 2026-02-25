@@ -1,14 +1,14 @@
 package ru.dr.meterreadings.data.repository.providers.tns
 
-import ru.dr.meterreadings.data.mappers.TnsRegionMapper
-import ru.dr.meterreadings.data.mappers.UniversalAccountMapper
-import ru.dr.meterreadings.data.mappers.UniversalMeterMapper
+//import ru.dr.meterreadings.data.mappers.TnsRegionMapper
+//import ru.dr.meterreadings.data.mappers.UniversalAccountMapper
+//import ru.dr.meterreadings.data.mappers.UniversalMeterMapper
 import ru.dr.meterreadings.data.repository.AccountRepository
 import ru.dr.meterreadings.domain.connector.AppAuth
+import ru.dr.meterreadings.domain.connector.AuthException
 import ru.dr.meterreadings.domain.connector.GetRegions
 import ru.dr.meterreadings.domain.connector.ProviderConnector
 import ru.dr.meterreadings.domain.connector.GetAccounts
-import ru.dr.meterreadings.domain.connector.GetMeters
 import ru.dr.meterreadings.domain.connector.UserAuth
 import ru.dr.meterreadings.domain.constants.ProviderIds
 import ru.dr.meterreadings.domain.service.AuthService
@@ -29,22 +29,23 @@ import javax.inject.Singleton
  */
 @Singleton
 class TnsConnector @Inject constructor(
-    private val tnsRepository: TnsRepository,
+    private val repository: TnsRepository,
     private val authService: AuthService,
     private val accountRepository: AccountRepository
 ) : ProviderConnector,
     AppAuth,
     GetRegions,
     UserAuth,
-    GetAccounts,
-    GetMeters {
+    GetAccounts
+//    GetMeters
+{
 
     override val providerId: Long = ProviderIds.TNS
     override val providerName: String = "ТНС Энерго"
 
     override suspend fun appAuth(): Result<Boolean> {
         println("🔐 [TnsConnector] Авторизация приложения...")
-        return tnsRepository.authorizeApp()
+        return repository.authorizeApp()
     }
 
     /**
@@ -58,12 +59,15 @@ class TnsConnector @Inject constructor(
     override suspend fun getRegions(): Result<List<GetRegions.RegionInfo>> {
         println("🌐 [TnsConnector] Запрос регионов...")
 
-        val result = tnsRepository.getRegions()
-
-        return result.map { regions ->
-            println("✅ [TnsConnector] Получено регионов: ${regions.size}")
-            TnsRegionMapper.mapListToRegionInfo(regions)
-        }
+        return repository.getRegions()
+            .map { dtoList ->
+                dtoList.map { dto ->
+                    GetRegions.RegionInfo(
+                        id = dto.id,
+                        name = dto.name
+                    )
+                }
+            }
     }
 
     /**
@@ -87,7 +91,7 @@ class TnsConnector @Inject constructor(
             }
 
             // Выполняем авторизацию
-            val authResult = tnsRepository.authorizeUser(
+            val authResult = repository.authorizeUser(
                 login = login,
                 password = password,
                 regionCode = region
@@ -153,52 +157,76 @@ class TnsConnector @Inject constructor(
     override suspend fun getAccounts(
         accountNumber: String,
         regionId: String?,
-        login: String? // ✅ ДОБАВЛЕН ПАРАМЕТР
+        login: String?
     ): Result<List<GetAccounts.AccountInfo>> {
-        val region = requireNotNull(regionId) { "Укажите регион" }
-        val userLogin = requireNotNull(login) { "Для ТНС необходим login" }
+        println("🌐 [TnsConnector] getAccounts($accountNumber, regionId=$regionId), login=$login")
 
-        return safeAuthenticatedCall(authService, providerId, userLogin) { accessToken ->
-            val result = tnsRepository.getAccounts(accessToken, region)
-            result.getOrThrow().let { dtoList ->
-                UniversalAccountMapper.fromTnsDtoList(
-                    dtoList = dtoList,
-                    regionId = region,
-                    login = userLogin, // ✅ ПЕРЕДАЁМ LOGIN
+        // ✅ Ранний возврат при ошибке
+        if (regionId == null) {
+            println("❌ [TnsConnector] Ошибка: regionId == null")
+            return Result.failure(IllegalArgumentException("Укажите регион"))
+        }
+
+        if (login == null) {
+            println("❌ [TnsConnector] Ошибка: login == null")
+            return Result.failure(IllegalArgumentException("Для Tns необходим login"))
+        }
+
+        return safeAuthenticatedCall(authService, providerId, login) { accessToken ->
+            repository.getAccounts(accessToken, regionId)
+        }.map { accountsList ->
+            println("✅ [TnsConnector] Получено аккаунтов: ${accountsList.size}")
+
+            accountsList.map { account ->  // ✅ account — один TnsAccountDto
+                GetAccounts.AccountInfo(
+                    number = account.number,      // ✅ Используем свойства account
+                    address = account.address,
+                    login = login,
+                    submissionStartDay = null,
+                    submissionEndDay = null,
                     additionalInfo = null
                 )
             }
+        }.onFailure { error ->
+            println("❌ [TnsConnector] Ошибка: ${error.message}")
+
+            // ✅ Очищаем токен при ошибке авторизации
+            if (error is AuthException) {
+                println("🗑️ [TnsConnector] Ошибка авторизации - очищаем токен")
+                authService.clearToken(providerId, login)
+            }
         }
     }
+
 
     /**
      * Получить список счётчиков для лицевого счёта
      */
-    override suspend fun getMeters(
-        accountNumber: String,
-        regionId: String?
-    ): Result<GetMeters.GetMetersResult> {
-        val region = requireNotNull(regionId) { "Укажите регион" }
-
-        return try {
-            // ✅ Теперь account будет AccountDomainModel
-            val account = accountRepository.findByAccountNumber(accountNumber)
-                ?: return Result.failure(Exception("Аккаунт не найден"))
-
-            val userLogin = account.login
-                ?: return Result.failure(Exception("У аккаунта нет логина"))
-
-            safeAuthenticatedCall(authService, providerId, userLogin) { accessToken ->
-                val result = tnsRepository.getCounters(accountNumber, accessToken, region)
-                result.getOrThrow().let { dtoList ->
-                    val meters = UniversalMeterMapper.fromTnsDtoList(dtoList)
-                    GetMeters.GetMetersResult(meters = meters, cacheData = null)
-                }
-            }
-        } catch (e: Exception) {
-            println("❌ [TnsConnector] Ошибка: ${e.message}")
-            Result.failure(Exception(e.toUserFriendlyMessage()))
-        }
-    }
+//    override suspend fun getMeters(
+//        accountNumber: String,
+//        regionId: String?
+//    ): Result<GetMeters.GetMetersResult> {
+//        val region = requireNotNull(regionId) { "Укажите регион" }
+//
+//        return try {
+//            // ✅ Теперь account будет AccountDomainModel
+//            val account = accountRepository.findByAccountNumber(accountNumber)
+//                ?: return Result.failure(Exception("Аккаунт не найден"))
+//
+//            val userLogin = account.login
+//                ?: return Result.failure(Exception("У аккаунта нет логина"))
+//
+//            safeAuthenticatedCall(authService, providerId, userLogin) { accessToken ->
+//                val result = repository.getCounters(accountNumber, accessToken, region)
+//                result.getOrThrow().let { dtoList ->
+//                    val meters = UniversalMeterMapper.fromTnsDtoList(dtoList)
+//                    GetMeters.GetMetersResult(meters = meters, cacheData = null)
+//                }
+//            }
+//        } catch (e: Exception) {
+//            println("❌ [TnsConnector] Ошибка: ${e.message}")
+//            Result.failure(Exception(e.toUserFriendlyMessage()))
+//        }
+//    }
 
 }

@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -84,7 +83,7 @@ fun AddAccountWizard(
     // ✅ Автоматически выбираем все аккаунты при загрузке
     LaunchedEffect(searchedAccounts) {
         searchedAccounts?.let { accounts ->
-            selectedAccountNumbers = accounts.map { it.accountNumber }.toSet()
+            selectedAccountNumbers = accounts.map { it.number }.toSet()
         }
     }
 
@@ -239,7 +238,7 @@ fun AddAccountWizard(
                             if (selectedProviderId != null) {
                                 // ✅ Фильтруем только выбранные аккаунты
                                 val accountsToAdd = searchedAccounts?.filter {
-                                    selectedAccountNumbers.contains(it.accountNumber)
+                                    selectedAccountNumbers.contains(it.number)
                                 }
 
                                 if (accountsToAdd.isNullOrEmpty()) {
@@ -569,7 +568,7 @@ fun AddAccountWizard(
                                             selectedAccountNumbers = if (selectedAccountNumbers.size == searchedAccounts!!.size) {
                                                 emptySet() // Снять все
                                             } else {
-                                                searchedAccounts!!.map { it.accountNumber }.toSet() // Выбрать все
+                                                searchedAccounts!!.map { it.number }.toSet() // Выбрать все
                                             }
                                         }
                                     ) {
@@ -599,12 +598,12 @@ fun AddAccountWizard(
                         items(accounts) { account ->
                             AccountCard(
                                 account = account,
-                                isSelected = selectedAccountNumbers.contains(account.accountNumber),
+                                isSelected = selectedAccountNumbers.contains(account.number),
                                 onToggle = {
-                                    selectedAccountNumbers = if (selectedAccountNumbers.contains(account.accountNumber)) {
-                                        selectedAccountNumbers - account.accountNumber // Убрать
+                                    selectedAccountNumbers = if (selectedAccountNumbers.contains(account.number)) {
+                                        selectedAccountNumbers - account.number // Убрать
                                     } else {
-                                        selectedAccountNumbers + account.accountNumber // Добавить
+                                        selectedAccountNumbers + account.number // Добавить
                                     }
                                 }
                             )
@@ -722,7 +721,7 @@ fun AccountCard(
             Column(modifier = Modifier.weight(1f)) {
                 // Номер счёта
                 Text(
-                    text = "🆔 ${account.accountNumber}",
+                    text = "🆔 ${account.number}",
                     style = MaterialTheme.typography.bodyLarge
                 )
 

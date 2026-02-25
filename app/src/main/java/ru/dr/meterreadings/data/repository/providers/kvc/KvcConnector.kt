@@ -1,21 +1,16 @@
 package ru.dr.meterreadings.data.repository.providers.kvc
 
 import ru.dr.meterreadings.data.remote.dto.kvc.CaptchaRequiredException
-import ru.dr.meterreadings.data.remote.dto.kvc.KvcMetersDto
-import ru.dr.meterreadings.data.remote.dto.kvc.KvcMeterHistoryDto
-import ru.dr.meterreadings.data.remote.dto.kvc.KvcLocationDto
-import ru.dr.meterreadings.domain.connector.GetMeterHistory
-import ru.dr.meterreadings.domain.connector.GetTransmissionPeriod
 import ru.dr.meterreadings.domain.connector.GetRegions
-import ru.dr.meterreadings.domain.connector.GetMeters
 import ru.dr.meterreadings.domain.connector.ProviderConnector
 import ru.dr.meterreadings.domain.connector.GetAccounts
-import ru.dr.meterreadings.domain.connector.SubmitReadings
-import ru.dr.meterreadings.domain.connector.ValidateReading
+import ru.dr.meterreadings.domain.connector.GetMeterHistory
+import ru.dr.meterreadings.domain.connector.GetMeters
 import ru.dr.meterreadings.domain.constants.ProviderIds
+import ru.dr.meterreadings.domain.exceptions.AccountNotFoundException
+import ru.dr.meterreadings.domain.exceptions.MeterNotFoundException
 import ru.dr.meterreadings.domain.service.CaptchaService
-import ru.dr.meterreadings.utils.safeKvcCall
-import ru.dr.meterreadings.utils.safeKvcCallNoAuth
+import java.time.Year
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,207 +25,217 @@ class KvcConnector @Inject constructor(
     private val captchaService: CaptchaService
 ) : ProviderConnector,
     GetRegions,
-    GetAccounts
+    GetAccounts,
+    GetMeters,
+    GetMeterHistory
 //    SubmitReadings,
-//    GetMeters,
 //    ValidateReading,
-//    GetMeterHistory
     {
 
     override val providerId: Long = ProviderIds.KVC
     override val providerName: String = "КВЦ"
 
     // ==================== РЕГИОНЫ ====================
-    override suspend fun getRegions(): Result<List<GetRegions.RegionInfo>> {
-        println("KvcConnector: getRegions()")
 
-        return safeKvcCallNoAuth {
-            val regions = repository.getRegions().getOrThrow()
-            regions.map { region ->
-                GetRegions.RegionInfo(
-                    id = region.id.toString(),
-                    name = region.name
-                )
+    override suspend fun getRegions(): Result<List<GetRegions.RegionInfo>> {
+        println("🌐 [TnsConnector] Запрос регионов...")
+
+        return repository.getRegions()
+            .map { dtoList ->
+                dtoList.map { dto ->
+                    GetRegions.RegionInfo(
+                        id = dto.id.toString(),
+                        name = dto.name
+                    )
+                }
             }
-        }
     }
 
-    // ==================== АККАУНТЫ ====================
-    override suspend fun getAccounts(
-        accountNumber: String,
-        regionId: String?,
-        login: String?
-    ): Result<List<GetAccounts.AccountInfo>> {
-        println("KvcConnector: getAccounts($accountNumber, regionId=$regionId)")
+        // ==================== АККАУНТЫ ====================
+        override suspend fun getAccounts(
+            accountNumber: String,
+            regionId: String?,
+            login: String?
+        ): Result<List<GetAccounts.AccountInfo>> {
+            println("🌐 [KvcConnector] getAccounts($accountNumber, regionId=$regionId)")
 
-        val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
-            "Region ID обязателен для КВЦ"
-        }
+            // ✅ Валидация regionId (возвращаем Result.failure вместо исключения)
+                val regionIdInt = regionId?.toIntOrNull()
+                    ?: return Result.failure(Exception("Region ID обязателен для КВЦ"))
 
-        // ✅ ИСПОЛЬЗУЕМ ОБЁРТКУ
-        return safeKvcCall(
-            captchaService = captchaService,
-            providerId = providerId,
-            accountNumber = accountNumber
-        ) { session ->  // ✅ Изменили с captchaToken на session
-            val accountInfo = repository.getAccount(
+            // ✅ Получаем сессию капчи
+            val session = captchaService.getCaptchaSession(providerId, accountNumber)
+                ?: return Result.failure(CaptchaRequiredException("Требуется пройти проверку капчи"))
+
+            println("🔐 [KvcConnector] Используем сессию капчи")
+
+            // ✅ Вызываем Repository
+            return repository.getAccount(
                 accountNumber = accountNumber,
                 regionId = regionIdInt,
-                session = session  // ✅ Передаём всю сессию
+                session = session
             )
-
-            listOf(
-                accountInfo
-            )
+                .map { account ->  // ✅ Преобразуем DTO → Interface Model
+                    listOf(
+                        GetAccounts.AccountInfo(
+                            number = account.number,
+                            uuid = account.id,
+                            address = account.address,
+                            regionId = regionId,
+                            login = null,
+                            submissionStartDay = account.submissionStartDay,
+                            submissionEndDay = account.submissionEndDay,
+                            additionalInfo = null
+                        )
+                    )
+                }
+                .onFailure { error ->  // ✅ Обрабатываем ошибки капчи
+                    if (error is CaptchaRequiredException) {
+                        println("🗑️ [KvcConnector] Капча невалидна - очищаем сессию")
+                        captchaService.clearCaptchaSession(providerId, accountNumber)
+                    }
+                }
         }
-    }
-//
-//    // ==================== СЧЁТЧИКИ ====================
-//    override suspend fun getMeters(
-//        accountNumber: String,
-//        regionId: String?
-//    ): Result<GetMeters.GetMetersResult> {
-//        val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
-//            "Region ID обязателен для КВЦ"
-//        }
-//
-//        println("KvcConnector: getMeters($accountNumber)")
-//
-//        // 1. Получаем locations (без капчи)
-//        val locations = safeKvcCallNoAuth {
-//            kvcRepository.getLocationsForRegion(regionIdInt).getOrThrow()
-//        }.getOrElse { return Result.failure(it) }
-//
-//        if (locations.isEmpty()) {
-//            return Result.failure(Exception("Не найдены населённые пункты для региона"))
-//        }
-//
-//        val location = locations.first()
-//
-//        // 2. Получаем abonent (с капчей через обёртку)
-//        val abonentInfo = safeKvcCall(
-//            captchaService = captchaService,
-//            providerId = providerId,
-//            accountNumber = accountNumber
-//        ) { captchaToken ->
-//            kvcRepository.getAccount(
-//                accountNumber = accountNumber,
-//                regionId = regionIdInt,
-//                captchaToken = captchaToken
-//            ).getOrThrow()
-//        }.getOrElse { return Result.failure(it) }
-//
-//        val abonentId = abonentInfo.id
-//        println("KvcConnector: abonentId=$abonentId")
-//
-//        // 3. Получаем счётчики (без капчи)
-//        val kvcCounters = safeKvcCallNoAuth {
-//            kvcRepository.getMeters(abonentId = abonentId).getOrThrow()
-//        }.getOrElse { return Result.failure(it) }
-//
-//        println("KvcConnector: Найдено счётчиков: ${kvcCounters.size}")
-//
-//        // 4. Фильтруем и мапим
-//        val meters = kvcCounters
-//            .filter { it.canEdit() }
-//            .map { counter ->
-//                GetMeters.MeterInfo(
-//                    id = counter.idCnt.toString(),
-//                    type = if (counter.idTtype == "2T") {
-//                        "${counter.servName.trim()} (${counter.idTtype})"
-//                    } else {
-//                        counter.servName.trim()
-//                    },
-//                    serialNumber = counter.number.trim(),
-//                    lastValue = parseValueAsInt(counter.cValLst),
-//                    lastSubmissionDate = counter.datB.trim().takeIf { it.isNotBlank() },
-//                    apiCounterId = counter.idCnt
-//                )
-//            }
-//
-//        println("KvcConnector: Доступно для передачи: ${meters.size}")
-//
-//        return Result.success(
-//            GetMeters.GetMetersResult(
-//                meters = meters,
-//                cacheData = mapOf(
-//                    "location" to location,
-//                    "abonentId" to abonentId,
-//                    "counters" to kvcCounters
-//                )
-//            )
-//        )
-//    }
-//
-//    // ==================== ИСТОРИЯ ====================
-//    override suspend fun getMeterHistory(
-//        counterId: String,
-//        accountNumber: String,
-//        regionId: String?,
-//        cacheData: Any?
-//    ): Result<List<GetMeterHistory.MeterHistory>> {
-//        println("KvcConnector: getMeterHistory($counterId)")
-//
-//        // ✅ ОБОРАЧИВАЕМ В safeKvcCallNoAuth (история не требует капчу)
-//        return safeKvcCallNoAuth {
-//            // ============================================
-//            // 1️⃣ ПОЛУЧЕНИЕ LOCATION (из cache или API)
-//            // ============================================
-//            @Suppress("UNCHECKED_CAST")
-//            val cache = cacheData as? Map<String, Any>
-//            val location = cache?.get("location") as? KvcLocationDto
-//
-//            val actualLocation = if (location != null) {
-//                println("KvcConnector: Используем location из cache")
-//                location
-//            } else {
-//                println("KvcConnector: Location нет в cache, запрашиваем...")
-//                val regionIdInt = requireNotNull(regionId?.toIntOrNull()) {
-//                    "Region ID обязателен"
-//                }
-//
-//                // ⚠️ Вложенный safeKvcCallNoAuth (или просто .getOrThrow())
-//                val locations = kvcRepository.getLocationsForRegion(regionIdInt).getOrThrow()
-//
-//                locations.firstOrNull()
-//                    ?: throw Exception("Не найдены населённые пункты")
-//            }
-//
-//            // ============================================
-//            // 2️⃣ ПОЛУЧЕНИЕ ИСТОРИИ
-//            // ============================================
-//            val history = kvcRepository.getMeterHistory(
-//                location = actualLocation,
-//                accountNumber = accountNumber,
-//                meterId = counterId.toInt()
-//            ).getOrThrow() // ✅ Вместо .getOrElse { return ... }
-//
-//            // ============================================
-//            // 3️⃣ МАППИНГ ДАННЫХ
-//            // ============================================
-//            history.mapNotNull { entry ->
-//                try {
-//                    val datePart = entry.datB.substringBefore("T")
-//                    val parts = datePart.split("-")
-//
-//                    if (parts.size == 3) {
-//                        val year = parts[0].toInt()
-//                        val month = parts[1].toInt()
-//
-//                        GetMeterHistory.MeterHistory(
-//                            month = month,
-//                            year = year,
-//                            value = entry.valLst.toInt(),
-//                            consumption = entry.diff.toInt()
-//                        )
-//                    } else null
-//                } catch (e: Exception) {
-//                    println("⚠️ [KvcConnector] Ошибка парсинга entry: ${e.message}")
-//                    null
-//                }
-//            }
-//        }
-//    }
+
+        // ==================== СЧЁТЧИКИ ====================
+        /**
+         * Получить список счётчиков для аккаунта
+         *
+         * ✅ Для КВЦ требуется UUID аккаунта (apiAccountId)
+         * ✅ UUID передаётся через параметр apiAccountId
+         *
+         *
+         * @param accountNumber Номер лицевого счёта (НЕ используется в КВЦ API)
+         * @param regionId ID региона (НЕ используется в КВЦ API)
+         * @param apiAccountId UUID аккаунта (apiAccountId) - ОБЯЗАТЕЛЬНО для КВЦ
+         * @return Result со списком счётчиков
+         * @throws AccountNotFoundException если UUID устарел (400 от API)
+         */
+        override suspend fun getMeters(
+            accountNumber: String,
+            regionId: String?,
+            apiAccountId: String?
+        ): Result<GetMeters.GetMetersResult> {
+            println("🔍 [KvcConnector] getMeters для ЛС=$accountNumber")
+
+            return try {
+                // ✅ Проверяем наличие UUID
+                val notNullApiAccountId = apiAccountId
+                    ?: return Result.failure(
+                        IllegalArgumentException(
+                            "Для КВЦ требуется UUID аккаунта. " +
+                                    "Используйте: getMeters(accountNumber, regionId, apiAccountId = account.uuid)"
+                        )
+                    )
+
+                println("   UUID аккаунта: $notNullApiAccountId")
+
+                // ✅ Загружаем счётчики из API
+                val metersResult = repository.getMeters(notNullApiAccountId)
+
+                // ✅ Преобразуем DTO → MeterInfo
+                metersResult.map { dtoListMeters ->
+                    println("✅ [KvcConnector] Получено счётчиков: ${dtoListMeters.size}")
+
+                    GetMeters.GetMetersResult(
+                        meters = dtoListMeters.map { dtoMeter ->
+                            println("   - ${dtoMeter.type}: ${dtoMeter.number}")
+                            println("     T1=${dtoMeter.lastFirstValue}, T2=${dtoMeter.lastSecondValue}, T3=${dtoMeter.lastThirdValue}")
+
+                            GetMeters.MeterInfo(
+                                id = dtoMeter.id,  // ✅ UUID счётчика из API
+                                number = dtoMeter.number,
+                                lastFirstValue = dtoMeter.lastFirstValue.toInt(),
+                                lastSecondValue = dtoMeter.lastSecondValue.toInt(),
+                                lastThirdValue = dtoMeter.lastThirdValue.toInt(),
+                                type = dtoMeter.type,
+                                verificationDate = dtoMeter.verificationDate,
+                                maxDiff = dtoMeter.maxDiff,
+                                apiAccountId = notNullApiAccountId  // ✅ UUID аккаунта
+                            )
+                        }
+                    )
+                }
+            } catch (e: AccountNotFoundException) {
+                // ✅ UUID устарел → ViewModel должен обновить через getAccounts()
+                println("❌ [KvcConnector] UUID устарел (ошибка 400 от API)")
+                println("   Требуется обновление через getAccounts()")
+                Result.failure(e)
+
+            } catch (e: Exception) {
+                println("❌ [KvcConnector] Ошибка загрузки счётчиков: ${e.message}")
+                e.printStackTrace()
+                Result.failure(e)
+            }
+        }
+
+
+        // ==================== ИСТОРИЯ ====================
+        /**
+         * Получить историю передачи для счетчика
+         *
+         * ✅ Для КВЦ требуется id счетчика из api
+         * ✅ id передаётся через параметр apiDeviceId
+         *
+         * @param meterId id счетчика из api
+         * @param regionId ID региона (НЕ используется в КВЦ API)
+         * @return Result со списком счётчиков
+         * @throws AccountNotFoundException если UUID устарел (400 от API)
+         */
+        override suspend fun getMeterHistory(
+            meterNumber: String?,
+            meterId: String?,
+            regionId: String?
+        ): Result<List<GetMeterHistory.MeterHistoryInfo>> {
+            println("🔍 [KvcConnector] getMeterHistory для счетчика id=$meterId")
+
+            return try {
+                
+                val notNullMeterId = meterId
+                    ?: return Result.failure(
+                        IllegalArgumentException(
+                            "Для КВЦ требуется id счетчика. " +
+                                    "Используйте: getMeterHistory(meterId, regionId)"
+                        )
+                    )
+
+                println("   id счетчика: $notNullMeterId")
+
+                // ✅ Загружаем счётчики из API
+                val meterHistoryResult = repository.getMeterHistory(notNullMeterId)
+
+                // ✅ Преобразуем DTO → MeterHistoryInfo
+                meterHistoryResult.map { dtoListMeterHistory ->
+                    println("✅ [KvcConnector] Получено истории: ${dtoListMeterHistory.size}")
+
+                    dtoListMeterHistory
+                        .groupBy { it.submissionPeriod }
+                        .map { ( period, tariffs ) ->
+                            GetMeterHistory.MeterHistoryInfo(
+                                month = period.split("-")[1].toInt(),
+                                year = period.split("-")[0].toInt(),
+                                tariffs = tariffs.map { tariff ->
+                                    GetMeterHistory.TariffInfo(
+                                        indicationType = tariff.indicationType,
+                                        lastValue = tariff.lastValue.toInt(),
+                                        prevValue = tariff.prevValue.toInt(),
+                                        consumption = tariff.diff.toInt()
+                                    )
+                                }
+                            )
+                        }
+                }
+            } catch (e: MeterNotFoundException) {
+                // ✅ UUID аккаунта и id счетчика устарел → ViewModel должен обновить через getAccounts() и getMeters()
+                println("❌ [KvcConnector] UUID аккаунта и id счетчика устарел (ошибка 400 от API)")
+                println("   Требуется обновление через getAccounts() и getMeters()")
+                Result.failure(e)
+            } catch (e: Exception) {
+                println("❌ [KvcConnector] Ошибка загрузки счётчиков: ${e.message}")
+                e.printStackTrace()
+                Result.failure(e)
+            }
+        }
 //
 //    // ==================== МИНИМАЛЬНОЕ ЗНАЧЕНИЕ ====================
 //    override suspend fun getMinimumAllowedValue(

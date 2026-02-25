@@ -1,10 +1,91 @@
 package ru.dr.meterreadings.utils
 
+import io.ktor.client.call.body
 import io.ktor.client.plugins.ClientRequestException
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpStatusCode
 import kotlinx.serialization.SerializationException
+import ru.dr.meterreadings.domain.connector.AuthException
+import ru.dr.meterreadings.domain.service.AuthService
+import ru.dr.meterreadings.domain.service.TokenResult
 import java.net.UnknownHostException
 import java.net.SocketTimeoutException
+
+/**
+ *
+ * Обёртка для Repository-запросов с авторизацией
+ *
+ * Комбинирует проверку авторизации + обработку исключений.
+ * Используй когда block возвращает Result<T> (например, Repository).
+ *
+ * @param authService Сервис авторизации
+ * @param providerId ID провайдера
+ * @param login Логин пользователя
+ * @param regionId ID региона (опционально)
+ * @param block Блок с Repository-запросом, возвращает Result<T>
+ * @return Result с данными или ошибкой (AuthException + NetworkException)
+ */
+suspend fun <T> safeAuthenticatedCall(
+    authService: AuthService,
+    providerId: Long,
+    login: String,
+    regionId: String? = null,
+    block: suspend (accessToken: String) -> Result<T>
+): Result<T> {
+    val tokenResult = authService.getValidAccessToken(providerId, login, regionId)
+
+    return when (tokenResult) {
+        is TokenResult.Success -> {
+            // ✅ Оборачиваем в safeNetworkCall для обработки непойманных исключений
+            safeNetworkCall {
+                // ✅ Разворачиваем Result из Repository
+                block(tokenResult.accessToken).getOrThrow()
+            }
+        }
+        is TokenResult.Error -> {
+            Result.failure(AuthException(tokenResult.authError))
+        }
+    }
+}
+
+/**
+ * Обёртка для запросов с кастомной обработкой HTTP статусов
+ *
+ * @param statusHandlers Map<HttpStatusCode, suspend (HttpResponse) -> T>
+ * @param block Блок с HTTP запросом
+ */
+/**
+ * Обёртка для запросов с кастомной обработкой HTTP статусов
+ */
+suspend inline fun <reified T> safeNetworkCallWithStatusHandlers(
+    statusHandlers: Map<HttpStatusCode, suspend (HttpResponse) -> T> = emptyMap(),
+    crossinline block: suspend () -> HttpResponse
+): Result<T> {
+    return safeNetworkCall {
+        try {
+            val response = block()
+
+            // Проверяем кастомный обработчик
+            val handler = statusHandlers[response.status]
+            if (handler != null) {
+                handler(response)
+            } else {
+                // Стандартный парсинг
+                response.body<T>()
+            }
+
+        } catch (e: ClientRequestException) {
+            // Проверяем обработчик для ошибки
+            val handler = statusHandlers[e.response.status]
+            if (handler != null) {
+                handler(e.response)
+            } else {
+                throw e  // Пробрасываем в safeNetworkCall
+            }
+        }
+    }
+}
 
 /**
  * Универсальная обёртка для сетевых запросов с обработкой ошибок

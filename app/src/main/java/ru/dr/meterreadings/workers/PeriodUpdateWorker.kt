@@ -92,7 +92,7 @@ class PeriodUpdateWorker @AssistedInject constructor(
                         continue
                     }
 
-                    println("📋 [PeriodUpdateWorker] Используем аккаунт: ${account.accountNumber}")
+                    println("📋 [PeriodUpdateWorker] Используем аккаунт: ${account.number}")
 
                     // ✅ Получаем коннектор для провайдера
                     val connector = connectorFactory.getConnector(provider.id)
@@ -100,7 +100,7 @@ class PeriodUpdateWorker @AssistedInject constructor(
                     // Проверяем, поддерживает ли провайдер получение периода
                     if (connector is GetTransmissionPeriod) {
                         val periodResult = connector.getTransmissionPeriod(
-                            accountNumber = account.accountNumber,
+                            accountNumber = account.number,
                             regionId = account.regionId
                         )
 

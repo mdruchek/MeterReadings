@@ -14,7 +14,7 @@ import javax.inject.Inject
 import ru.dr.meterreadings.data.remote.dto.kvc.CaptchaRequiredException
 import ru.dr.meterreadings.data.repository.AccountRepository
 import ru.dr.meterreadings.data.repository.ProfileRepository
-import ru.dr.meterreadings.data.mappers.UniversalMeterMapper
+import ru.dr.meterreadings.data.repository.ProviderRepository
 import ru.dr.meterreadings.domain.connector.ProviderConnectorFactory
 import ru.dr.meterreadings.domain.connector.GetMeters
 import ru.dr.meterreadings.domain.connector.SubmitReadings
@@ -22,17 +22,26 @@ import ru.dr.meterreadings.domain.connector.ValidateReading
 import ru.dr.meterreadings.domain.connector.GetMeterHistory
 import ru.dr.meterreadings.domain.connector.UserAuth
 import ru.dr.meterreadings.domain.connector.AuthException
+import ru.dr.meterreadings.domain.connector.GetAccounts
+import ru.dr.meterreadings.domain.exceptions.AccountNotFoundException
+import ru.dr.meterreadings.domain.service.CaptchaService
 import ru.dr.meterreadings.models.domain.AccountDomainModel
 import ru.dr.meterreadings.models.domain.ProfileDomainModel
+import ru.dr.meterreadings.models.domain.MeterDomainModel
+import ru.dr.meterreadings.models.domain.toMeterDomainModel
 import ru.dr.meterreadings.models.ui.MeterUiModel
 import ru.dr.meterreadings.models.ui.AuthError
+import ru.dr.meterreadings.ui.components.CaptchaSession
+import ru.dr.meterreadings.utils.toUserFriendlyMessage
 
 @HiltViewModel
 class ProfileDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val accountRepository: AccountRepository,
     private val profileRepository: ProfileRepository,
-    private val providerConnectorFactory: ProviderConnectorFactory
+    private val providerConnectorFactory: ProviderConnectorFactory,
+    private val captchaService: CaptchaService,
+    private val providerRepository: ProviderRepository
 ) : ViewModel() {
 
     // ============================================
@@ -53,11 +62,8 @@ class ProfileDetailViewModel @Inject constructor(
     val accounts: StateFlow<List<AccountDomainModel>> = _accounts.asStateFlow()
 
     /** Карта загруженных счётчиков: accountId → список счётчиков */
-    private val _accountMeters = MutableStateFlow<Map<String, List<MeterUiModel>>>(emptyMap())
-    val accountMeters: StateFlow<Map<String, List<MeterUiModel>>> = _accountMeters.asStateFlow()
-
-    /** Кеш данных провайдера (cacheData) для каждого аккаунта */
-    private val _accountCacheData = MutableStateFlow<Map<String, Any?>>(emptyMap())
+    private val _accountMeters = MutableStateFlow<Map<String, List<MeterDomainModel>>>(emptyMap())
+    val accountMeters: StateFlow<Map<String, List<MeterDomainModel>>> = _accountMeters.asStateFlow()
 
     /** Множество ID аккаунтов, для которых сейчас загружаются счётчики */
     private val _loadingAccounts = MutableStateFlow<Set<String>>(emptySet())
@@ -107,13 +113,6 @@ class ProfileDetailViewModel @Inject constructor(
     private val _showCaptcha = MutableStateFlow(false)
     val showCaptcha: StateFlow<Boolean> = _showCaptcha.asStateFlow()
 
-    /** URL капчи */
-    private val _captchaUrl = MutableStateFlow<String?>(null)
-    val captchaUrl: StateFlow<String?> = _captchaUrl.asStateFlow()
-
-    /** Действие для повтора после успешной капчи */
-    private var pendingAction: (suspend () -> Unit)? = null
-
     // ============================================
     // INIT
     // ============================================
@@ -134,6 +133,8 @@ class ProfileDetailViewModel @Inject constructor(
         _error.value = null
     }
 
+    private var pendingAccountId: String? = null
+
     /**
      * Загрузить счётчики для конкретного аккаунта
      *
@@ -142,78 +143,47 @@ class ProfileDetailViewModel @Inject constructor(
      */
     fun loadMetersForAccount(accountId: String) {
         viewModelScope.launch {
-            // Добавляем в список загружаемых
-            _loadingAccounts.value = _loadingAccounts.value + accountId
-            // Очищаем старую ошибку
+            println("🔍 [ProfileDetailViewModel] Загрузка счётчиков для аккаунта $accountId")
+
             _accountErrors.value = _accountErrors.value - accountId
-            _authError.value = null
+            _loadingAccounts.value = _loadingAccounts.value + accountId
 
             try {
                 val account = _accounts.value.firstOrNull { it.id == accountId }
-                    ?: throw Exception("Аккаунт не найден")
-
-                println("🔍 [ProfileDetailViewModel] Загружаем счётчики для ${account.accountNumber}")
+                    ?: throw IllegalArgumentException("Аккаунт не найден")
 
                 val connector = providerConnectorFactory.getConnector(account.providerId)
-
                 if (connector !is GetMeters) {
-                    throw Exception("Провайдер не поддерживает загрузку счётчиков")
+                    throw IllegalStateException("Провайдер не поддерживает загрузку счётчиков")
                 }
 
-                // ✅ safeAuthenticatedCall уже внутри connector.getMeters()
                 val result = connector.getMeters(
-                    accountNumber = account.accountNumber,
-                    regionId = account.regionId?.toString()
+                    accountNumber = account.number,
+                    regionId = account.regionId,
+                    apiAccountId = account.uuid
                 )
 
-                result.fold(
-                    onSuccess = { loadResult ->
-                        val uiMeters = UniversalMeterMapper.mapListToUi(
-                            meters = loadResult.meters,
-                            accountId = account.id
-                        )
-
-                        // Сохраняем счётчики для этого аккаунта
-                        _accountMeters.value = _accountMeters.value + (accountId to uiMeters)
-
-                        // Сохраняем кеш
-                        _accountCacheData.value = _accountCacheData.value + (accountId to loadResult.cacheData)
-
-                        println("✅ [ProfileDetailViewModel] Загружено ${uiMeters.size} счётчиков")
-                    },
-                    onFailure = { error ->
-                        // ✅ ДОБАВЛЕНО: обработка CaptchaRequiredException
-                        when (error) {
-                            is CaptchaRequiredException -> {
-                                println("🔐 [ProfileDetailViewModel] Требуется капча для loadMeters")
-
-                                // Сохраняем действие для повтора
-                                pendingAction = { loadMetersForAccount(accountId) }
-
-                                // Показываем капчу
-                                _showCaptcha.value = true
-                                _captchaUrl.value = "https://smartcaptcha.yandexcloud.net/captcha?sitekey=ysc1_cVL6K8xGEFtqzLAk5vP2DkLcqWEllPeEzLm62X1T32e04c3a&invisible=false"
-                            }
-                            is AuthException -> {
-                                println("🔐 [ProfileDetailViewModel] Ошибка авторизации")
-                                _authError.value = error.authError
-                            }
-                            else -> {
-                                println("❌ [ProfileDetailViewModel] Ошибка: ${error.message}")
-                                _accountErrors.value = _accountErrors.value + (accountId to (error.message ?: "Не удалось загрузить счётчики"))
-                            }
-                        }
+                result.onSuccess { metersResult ->
+                    println("✅ [ProfileDetailViewModel] Счётчики загружены: ${metersResult.meters.size}")
+                    _accountMeters.value = _accountMeters.value +
+                            (accountId to metersResult.meters.map { it.toMeterDomainModel(accountId, account.providerId) })
+                }.onFailure { error ->
+                    if (error is AccountNotFoundException && connector is GetAccounts) {
+                        println("🔄 [ProfileDetailViewModel] UUID устарел, обновляем аккаунт...")
+                        pendingAccountId = accountId
+                        _showCaptcha.value = true
+                    } else {
+                        _accountErrors.value = _accountErrors.value + (accountId to error.toUserFriendlyMessage())
                     }
-                )
+                }
             } catch (e: Exception) {
-                println("❌ [ProfileDetailViewModel] Исключение: ${e.message}")
-                e.printStackTrace()
-                _accountErrors.value = _accountErrors.value + (accountId to (e.message ?: "Неизвестная ошибка"))
+                _accountErrors.value = _accountErrors.value + (accountId to e.toUserFriendlyMessage())
             } finally {
                 _loadingAccounts.value = _loadingAccounts.value - accountId
             }
         }
     }
+
 
     /**
      * Отправить показание счётчика
@@ -240,10 +210,6 @@ class ProfileDetailViewModel @Inject constructor(
                     throw Exception("Провайдер не поддерживает отправку показаний")
                 }
 
-                // ШАГ 3: Берём cacheData
-                val cacheData = _accountCacheData.value[account.id]
-                println("📦 [ProfileDetailViewModel] Кеш: ${if (cacheData != null) "ЕСТЬ" else "НЕТ"}")
-
                 // ШАГ 4: Загружаем историю (для валидации)
                 println("🔍 [ProfileDetailViewModel] Загружаем историю для валидации...")
                 val historyLoadResult = loadCounterHistory(
@@ -261,9 +227,8 @@ class ProfileDetailViewModel @Inject constructor(
 
                     val minValueResult = connector.getMinimumAllowedValue(
                         counterId = meter.id,
-                        accountNumber = account.accountNumber,
-                        regionId = account.regionId?.toString(),
-                        cacheData = cacheData
+                        accountNumber = account.number,
+                        regionId = account.regionId
                     )
 
                     minValueResult.onSuccess { minValue ->
@@ -291,11 +256,10 @@ class ProfileDetailViewModel @Inject constructor(
 
                 val result = connector.submitReading(
                     counterId = meter.id,
-                    accountNumber = account.accountNumber,
+                    accountNumber = account.number,
                     value = newValue.toString(),
                     valueNight = null,
-                    regionId = account.regionId?.toString(),
-                    cacheData = cacheData
+                    regionId = account.regionId
                 )
 
                 if (result.isFailure) {
@@ -305,12 +269,8 @@ class ProfileDetailViewModel @Inject constructor(
                     if (exception is CaptchaRequiredException) {
                         println("🔐 [ProfileDetailViewModel] Требуется капча для submitReading")
 
-                        // Сохраняем действие для повтора
-                        pendingAction = { submitReading(meter, newValue) }
-
                         // Показываем капчу
                         _showCaptcha.value = true
-                        _captchaUrl.value = "https://smartcaptcha.yandexcloud.net/captcha?sitekey=ysc1_cVL6K8xGEFtqzLAk5vP2DkLcqWEllPeEzLm62X1T32e04c3a&invisible=false"
 
                         return@launch // Не бросаем исключение, показываем капчу
                     }
@@ -396,16 +356,11 @@ class ProfileDetailViewModel @Inject constructor(
                 return Result.failure(Exception("Провайдер не поддерживает загрузку истории"))
             }
 
-            // Берём cacheData для этого аккаунта
-            val cacheData = _accountCacheData.value[accountId]
-            println("📦 [ProfileDetailViewModel] Кеш: ${if (cacheData != null) "ЕСТЬ" else "НЕТ"}")
-
             // Загружаем историю
             val historyResult = connector.getMeterHistory(
                 counterId = meterId,
-                accountNumber = account.accountNumber,
-                regionId = account.regionId?.toString(),
-                cacheData = cacheData
+                accountNumber = account.number,
+                regionId = account.regionId
             )
 
             historyResult.fold(
@@ -423,12 +378,7 @@ class ProfileDetailViewModel @Inject constructor(
                     // ✅ ДОБАВЛЕНО: обработка капчи
                     if (error is CaptchaRequiredException) {
                         println("🔐 [ProfileDetailViewModel] Требуется капча для getMeterHistory")
-                        pendingAction = {
-                            loadCounterHistory(accountId, meterId)
-                            Unit // suspend lambda должна вернуть Unit
-                        }
                         _showCaptcha.value = true
-                        _captchaUrl.value = "https://smartcaptcha.yandexcloud.net/captcha?sitekey=ysc1_cVL6K8xGEFtqzLAk5vP2DkLcqWEllPeEzLm62X1T32e04c3a&invisible=false"
                     }
 
                     println("❌ [ProfileDetailViewModel] Ошибка загрузки истории: ${error.message}")
@@ -488,15 +438,11 @@ class ProfileDetailViewModel @Inject constructor(
                 return null
             }
 
-            // Берём cacheData
-            val cacheData = _accountCacheData.value[accountId]
-
             // Получаем минимум
             val minValueResult = connector.getMinimumAllowedValue(
                 counterId = meterId,
-                accountNumber = account.accountNumber,
-                regionId = account.regionId?.toString(),
-                cacheData = cacheData
+                accountNumber = account.number,
+                regionId = account.regionId
             )
 
             val minValue = minValueResult.getOrNull()
@@ -573,7 +519,6 @@ class ProfileDetailViewModel @Inject constructor(
 
                 // ✅ Очищаем все связанные данные
                 _accountMeters.value = _accountMeters.value - accountId
-                _accountCacheData.value = _accountCacheData.value - accountId
                 _counterHistories.value = _counterHistories.value - accountId
                 _submittingMeters.value = _submittingMeters.value - accountId
                 _accountErrors.value = _accountErrors.value - accountId
@@ -635,19 +580,53 @@ class ProfileDetailViewModel @Inject constructor(
     /**
      * Вызывается после успешного прохождения капчи
      */
-    fun onCaptchaCompleted(token: String) {
+    fun onCaptchaCompleted(session: CaptchaSession) {
         viewModelScope.launch {
-            println("✅ [ProfileDetailViewModel] Капча пройдена: ${token.take(20)}...")
-
-            // Закрываем UI капчи
+            println("✅ [ProfileDetailViewModel] Капча пройдена: ${session.token.take(20)}...")
             _showCaptcha.value = false
-            _captchaUrl.value = null
 
-            // Повторяем отложенное действие
-            try {
-                pendingAction?.invoke()
-            } finally {
-                pendingAction = null
+            val accountId = pendingAccountId ?: return@launch
+            pendingAccountId = null
+
+            val account = _accounts.value.find { it.id == accountId } ?: return@launch
+            val connector = providerConnectorFactory.getConnector(account.providerId)
+            if (connector !is GetAccounts) return@launch
+
+            // 1. Сохраняем токен капчи
+            captchaService.saveCaptchaSession(account.providerId, account.number, session)
+
+            // 2. Получаем свежие данные аккаунта
+            val result = connector.getAccounts(
+                accountNumber = account.number,
+                regionId = account.regionId,
+                login = account.login
+            )
+
+            result.onSuccess { accounts ->
+                val freshInfo = accounts.firstOrNull() ?: return@onSuccess
+
+                // 3. Обновляем аккаунт в БД (новый UUID и т.п.)
+                val updatedAccount = account.copy(
+                    uuid = freshInfo.uuid,
+                    address = freshInfo.address
+                )
+                accountRepository.updateAccount(updatedAccount)
+
+                // 4. Обновляем период передачи провайдера
+                if (freshInfo.submissionStartDay != null && freshInfo.submissionEndDay != null) {
+                    providerRepository.updateProviderTransmissionPeriod(
+                        providerId = account.providerId,
+                        periodStartDay = freshInfo.submissionStartDay,
+                        periodEndDay = freshInfo.submissionEndDay
+                    )
+                }
+
+                // 5. Повторно грузим счётчики
+                println("🔄 [ProfileDetailViewModel] UUID обновлён, повторная загрузка счётчиков...")
+                loadMetersForAccount(accountId)
+            }.onFailure { error ->
+                println("❌ [ProfileDetailViewModel] Ошибка обновления аккаунта: ${error.message}")
+                _accountErrors.value = _accountErrors.value + (accountId to error.toUserFriendlyMessage())
             }
         }
     }
@@ -657,10 +636,10 @@ class ProfileDetailViewModel @Inject constructor(
      */
     fun dismissCaptcha() {
         _showCaptcha.value = false
-        _captchaUrl.value = null
-        pendingAction = null
+        pendingAccountId = null
         println("❌ [ProfileDetailViewModel] Капча отменена пользователем")
     }
+
 
     // ============================================
     // LIFECYCLE

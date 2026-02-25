@@ -19,10 +19,14 @@ import androidx.room.PrimaryKey
 )
 data class MeterEntity(
     @PrimaryKey
-    val id: String,                     // "accountId_counterId"
+    val id: String,
+    val apiId: String,
     val accountId: String,
-    val apiCounterId: Int,              // idCnt из API
+    val apiAccountId: String,
+    val apiMeterId: Int,              // idCnt из API
     val type: String,                   // ✅ ДОБАВЛЕНО: "Холодная вода", "Электричество"
-    val serialNumber: String,           // ✅ ДОБАВЛЕНО: "12345678"
-    val lastSubmissionDate: String?     // "dd.MM.yyyy" или null
+    val number: String,           // ✅ ДОБАВЛЕНО: "12345678"
+    val lastSubmissionDate: Long?,
+    val createAt: Long,
+    val updateAt: Long
 )

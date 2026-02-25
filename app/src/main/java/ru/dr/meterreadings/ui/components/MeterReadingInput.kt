@@ -57,7 +57,7 @@ fun MeterReadingInput(
                     val currentYear = now.get(Calendar.YEAR)
 
                     // ✅ ЛОГ: Проверка даты
-                    println("🔍 [MeterReadingInput] Проверка даты для ${meter.type} №${meter.serialNumber}:")
+                    println("🔍 [MeterReadingInput] Проверка даты для ${meter.type} №${meter.number}:")
                     println("    dateString=$dateString, year=$year, month=$month")
                     println("    currentYear=$currentYear, currentMonth=$currentMonth")
                     println("    result=${year == currentYear && month == currentMonth}")
@@ -112,7 +112,7 @@ fun MeterReadingInput(
 
     // ✅ ЛОГ: Изменение minimumValue
     LaunchedEffect(minimumValue) {
-        println("📊 [MeterReadingInput] Минимум для ${meter.type} №${meter.serialNumber}: ${minimumValue ?: "не определён"}")
+        println("📊 [MeterReadingInput] Минимум для ${meter.type} №${meter.number}: ${minimumValue ?: "не определён"}")
     }
 
     // Цвета карточки: ЗЕЛЁНЫЙ если передано, РОЗОВЫЙ если НЕ передано
@@ -148,7 +148,7 @@ fun MeterReadingInput(
                     )
 
                     Text(
-                        text = "№ ${meter.serialNumber}",
+                        text = "№ ${meter.number}",
                         style = MaterialTheme.typography.bodySmall,
                         color = onContainerColor.copy(alpha = 0.7f)
                     )
@@ -185,13 +185,13 @@ fun MeterReadingInput(
                     }
 
                     // Предыдущие показания
-                    meter.lastValue?.let { last ->
-                        Text(
-                            text = "Пред: $last",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = onContainerColor.copy(alpha = 0.7f)
-                        )
-                    }
+//                    meter.lastValue?.let { last ->
+//                        Text(
+//                            text = "Пред: $last",
+//                            style = MaterialTheme.typography.bodySmall,
+//                            color = onContainerColor.copy(alpha = 0.7f)
+//                        )
+//                    }
 
                     // Расход (только если история загружена)
                     meter.lastMonthConsumption?.let { consumption ->

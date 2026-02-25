@@ -107,7 +107,7 @@ class AuthService @Inject constructor(
     /**
      * Удалить токен (выход)
      */
-    fun logout(providerId: Long, login: String) {
+    fun clearToken(providerId: Long, login: String) {
         tokenManager.deleteToken(providerId, login)
     }
 }

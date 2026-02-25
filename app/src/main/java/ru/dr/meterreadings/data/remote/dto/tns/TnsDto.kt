@@ -26,21 +26,21 @@ data class TnsAppVersionData(
 // Регионы
 // =====================================================
 @Serializable
-data class TnsRegionsResponse(
+data class TnsRegionsResponseDto(
     @SerialName("result")
     val result: Boolean,
     @SerialName("statusCode")
     val statusCode: Int,
     @SerialName("data")  // ✅ БЫЛО: regions
-    val data: List<TnsRegionDto>
+    val data: List<TnsRegionResponseDto>
 )
 
 @Serializable
-data class TnsRegionDto(
+data class TnsRegionResponseDto(
     @SerialName("name")
     val name: String,
     @SerialName("code")
-    val code: String,
+    val id: String,
     @SerialName("coordinates")
     val coordinates: String
 )
@@ -103,7 +103,7 @@ data class TnsError(
 // =====================================================
 
 @Serializable
-data class TnsAccountsResponse(
+data class TnsAccountsResponseDto(
     @SerialName("result")
     val result: Boolean,
 

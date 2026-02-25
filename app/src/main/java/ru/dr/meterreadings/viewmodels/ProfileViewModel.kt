@@ -178,32 +178,32 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Добавить аккаунт к профилю
-     */
-    fun addAccount(
-        profileId: String,
-        providerId: Long,
-        accountNumber: String
-    ) {
-        viewModelScope.launch {
-            try {
-                println("💾 [ProfileViewModel] Добавляем аккаунт: $accountNumber")
-
-                val accountId = accountRepository.addAccount(
-                    profileId = profileId,
-                    providerId = providerId,
-                    accountNumber = accountNumber
-                )
-
-                println("✅ [ProfileViewModel] Аккаунт добавлен с ID: $accountId")
-
-            } catch (e: Exception) {
-                println("❌ [ProfileViewModel] Ошибка добавления аккаунта: ${e.message}")
-                e.printStackTrace()
-            }
-        }
-    }
+//    /**
+//     * Добавить аккаунт к профилю
+//     */
+//    fun addAccount(
+//        profileId: String,
+//        providerId: Long,
+//        accountNumber: String
+//    ) {
+//        viewModelScope.launch {
+//            try {
+//                println("💾 [ProfileViewModel] Добавляем аккаунт: $accountNumber")
+//
+//                val accountId = accountRepository.addAccount(
+//                    profileId = profileId,
+//                    providerId = providerId,
+//                    accountNumber = accountNumber
+//                )
+//
+//                println("✅ [ProfileViewModel] Аккаунт добавлен с ID: $accountId")
+//
+//            } catch (e: Exception) {
+//                println("❌ [ProfileViewModel] Ошибка добавления аккаунта: ${e.message}")
+//                e.printStackTrace()
+//            }
+//        }
+//    }
 
     /**
      * Очистить ошибку (после показа Toast)

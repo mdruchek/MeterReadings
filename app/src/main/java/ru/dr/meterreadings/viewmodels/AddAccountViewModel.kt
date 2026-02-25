@@ -15,6 +15,7 @@ import ru.dr.meterreadings.domain.connector.AppAuth
 import ru.dr.meterreadings.domain.connector.UserAuth
 import ru.dr.meterreadings.domain.service.CaptchaService
 import ru.dr.meterreadings.models.domain.ProviderDomainModel
+import ru.dr.meterreadings.models.domain.toAccountDomainModel
 import ru.dr.meterreadings.models.ui.ProviderUiModel
 import ru.dr.meterreadings.ui.components.CaptchaSession
 import ru.dr.meterreadings.utils.toUserFriendlyMessage
@@ -549,7 +550,7 @@ class AddAccountViewModel @Inject constructor(
                         // Вызываем единую логику
                         addSingleAccount(profileId, accountInfo)
                     } catch (e: IllegalArgumentException) {
-                        println("⚠️ [AddAccountVM] Аккаунт ${accountInfo.accountNumber} уже существует")
+                        println("⚠️ [AddAccountVM] Аккаунт ${accountInfo.number} уже существует")
                         // Продолжаем добавлять остальные
                     }
                 }
@@ -571,6 +572,9 @@ class AddAccountViewModel @Inject constructor(
 
     /**
      * Внутренняя функция для добавления одного аккаунта
+     *
+     * ✅ Преобразует AccountInfo → AccountDomainModel
+     * ✅ Сохраняет период передачи в ProviderEntity
      */
     private suspend fun addSingleAccount(
         profileId: String,
@@ -579,23 +583,31 @@ class AddAccountViewModel @Inject constructor(
         val providerId = _selectedProviderId.value
             ?: throw IllegalStateException("Провайдер не выбран")
 
-        val regionId = if (_providerHasRegions.value) {
-            _selectedRegionId.value
-                ?: throw IllegalStateException("Регион не выбран")
-        } else {
-            null
-        }
-
-        val accountId = accountRepository.addAccount(
+        // ✅ Преобразуем AccountInfo → AccountDomainModel
+        val accountModel = accountInfo.toAccountDomainModel(
             profileId = profileId,
-            providerId = providerId,
-            accountNumber = accountInfo.accountNumber,
-            regionId = regionId,
-            login = accountInfo.login,
-            password = null
+            providerId = providerId
         )
 
-        println("✅ [AddAccountVM] Аккаунт создан: $accountId (${accountInfo.accountNumber})")
+        // ✅ Сохраняем аккаунт в БД
+        val accountId = accountRepository.addAccount(accountModel)
+
+        println("✅ [AddAccountVM] Аккаунт создан: $accountId (${accountInfo.number})")
+
+        // ✅ Сохраняем период передачи показаний в Provider (если есть)
+        if (accountInfo.submissionStartDay != null && accountInfo.submissionEndDay != null) {
+            try {
+                providerRepository.updateProviderTransmissionPeriod(
+                    providerId = providerId,
+                    periodStartDay = accountInfo.submissionStartDay,
+                    periodEndDay = accountInfo.submissionEndDay
+                )
+                println("✅ [AddAccountVM] Период передачи обновлён: ${accountInfo.submissionStartDay}-${accountInfo.submissionEndDay}")
+            } catch (e: Exception) {
+                println("⚠️ [AddAccountVM] Не удалось обновить период: ${e.message}")
+                // Не прерываем добавление аккаунта из-за ошибки обновления периода
+            }
+        }
     }
 
     /**

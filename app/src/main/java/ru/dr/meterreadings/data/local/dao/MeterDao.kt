@@ -12,7 +12,7 @@ interface MeterDao {
     /**
      * Получить все счётчики для аккаунта
      */
-    @Query("SELECT * FROM meters WHERE accountId = :accountId ORDER BY apiCounterId ASC")
+    @Query("SELECT * FROM meters WHERE accountId = :accountId")
     fun getAllByAccountId(accountId: String): Flow<List<MeterEntity>>
 
     /**

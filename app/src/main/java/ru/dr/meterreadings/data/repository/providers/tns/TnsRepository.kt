@@ -1,6 +1,5 @@
 package ru.dr.meterreadings.data.repository.providers.tns
 
-import android.util.Base64
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -8,20 +7,22 @@ import io.ktor.client.request.post
 import io.ktor.client.request.header
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import ru.dr.meterreadings.data.remote.dto.tns.TnsAccountDto
-import ru.dr.meterreadings.data.remote.dto.tns.TnsAccountsResponse
+import ru.dr.meterreadings.data.remote.dto.tns.TnsAccountsResponseDto
 import ru.dr.meterreadings.data.remote.dto.tns.TnsAppVersionResponse
 import ru.dr.meterreadings.data.remote.dto.tns.TnsAuthData
 import ru.dr.meterreadings.data.remote.dto.tns.TnsCounterDto
 import ru.dr.meterreadings.data.remote.dto.tns.TnsCountersResponse
 import ru.dr.meterreadings.data.remote.dto.tns.TnsUserAuthResponse
 import ru.dr.meterreadings.data.remote.dto.tns.TnsUserAuthRequest
-import ru.dr.meterreadings.data.remote.dto.tns.TnsRegionDto
-import ru.dr.meterreadings.data.remote.dto.tns.TnsRegionsResponse
+import ru.dr.meterreadings.data.remote.dto.tns.TnsRegionResponseDto
+import ru.dr.meterreadings.data.remote.dto.tns.TnsRegionsResponseDto
 import ru.dr.meterreadings.utils.safeNetworkCall
+import ru.dr.meterreadings.utils.safeNetworkCallWithStatusHandlers
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -85,33 +86,31 @@ class TnsRepository @Inject constructor(
      *
      * @return Result со списком регионов
      */
-    suspend fun getRegions(): Result<List<TnsRegionDto>> {
-        return try {
-            println("🔍 [TnsRepository] Загружаем регионы ТНС...")
+    suspend fun getRegions(): Result<List<TnsRegionResponseDto>> {
+        println("🔍 [TnsRepository] Загружаем регионы ТНС...")
 
+        return safeNetworkCall {
             val response = httpClient.get(
                 urlString = "$BASE_URL/api/v1/contacts/regions"
             ) {
-                // ✅ ДОБАВЛЯЕМ ЗАГОЛОВКИ ИЗ ПЕРЕХВАЧЕННОГО ЗАПРОСА
                 header("x-api-hash", API_HASH)
                 header("accept", "application/json")
                 header("accept-encoding", "gzip")
                 header("content-type", "application/x-www-form-urlencoded")
                 header("user-agent", "okhttp/4.12.0")
             }
+            println("✅ [KvcRepository] HTTP ${response.status.value}")
 
-            val regionsResponse = response.body<TnsRegionsResponse>()
+            val responseBody = response.body<TnsRegionsResponseDto>()
 
-            println("✅ [TnsRepository] Загружено регионов: ${regionsResponse.data.size}")
-            regionsResponse.data.forEach { region ->
-                println("   📍 ${region.name} (${region.code})")
+            if (!responseBody.result) {
+                throw Exception("API вернул ошибку: statusCode=${responseBody.statusCode}")
             }
 
-            Result.success(regionsResponse.data)
-        } catch (e: Exception) {
-            println("❌ [TnsRepository] Ошибка загрузки регионов: ${e.message}")
-            e.printStackTrace()
-            Result.failure(e)
+            val regions = responseBody.data
+            println("✅ [TnsRepository] Получено регионов: ${regions.size}")
+
+            regions
         }
     }
 
@@ -208,34 +207,29 @@ class TnsRepository @Inject constructor(
         accessToken: String,
         regionCode: String
     ): Result<List<TnsAccountDto>> {
-        return safeNetworkCall {
-            println("🔍 [TnsRepository] Загружаем лицевые счета...")
+        println("🔍 [TnsRepository] Загружаем лицевые счета...")
 
-            // ✅ Используем URL с регионом
-            val regionUrl = "https://mobile-api-$regionCode.tns-e.ru"
-
-            val response = httpClient.get(
-                urlString = "$regionUrl/api/v1/accounts"
-            ) {
+        return safeNetworkCallWithStatusHandlers<List<TnsAccountDto>>(
+            statusHandlers = mapOf(
+                HttpStatusCode.OK to { response ->
+                    val responseStatus = response.status.value
+                    println("[TnsRepository] статус response ответа accounts: $responseStatus")
+                    val responseBodyDto = response.body<TnsAccountsResponseDto>()
+                    require(responseBodyDto.result) { "API error: ${responseBodyDto.statusCode}" }
+                    val accounts: List<TnsAccountDto> = responseBodyDto.data
+                    println("[TnsRepository] получено аккаунтов: ${accounts.size}")
+                    println("[TnsRepository] получены аккаунты: $accounts")
+                    accounts
+                }
+            )
+        ) {
+            httpClient.get("https://mobile-api-$regionCode.tns-e.ru/api/v1/accounts") {
                 header("user-agent", "Dart/3.9 (dart:io)")
-                header("accept-encoding", "gzip")
                 header("x-api-hash", API_HASH)
-                header("authorizationtest", "Bearer $accessToken") // ✅ Заголовок из перехваченного запроса
+                header("authorizationtest", "Bearer $accessToken")
                 header("authorization", BASIC_AUTH)
-                header("x-device-id", "TE1A.240213.009")
-                header("content-type", "application/json")
             }
-
-            val accountsResponse = response.body<TnsAccountsResponse>()
-
-            println("✅ [TnsRepository] Загружено аккаунтов: ${accountsResponse.data.size}")
-            accountsResponse.data.forEach { account ->
-                println("  🏠 № ${account.number} | ${account.address}")
-            }
-
-            accountsResponse.data
-
-            }
+        }
     }
 
     /**

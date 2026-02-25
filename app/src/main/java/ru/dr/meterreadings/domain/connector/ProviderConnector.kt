@@ -1,7 +1,5 @@
 package ru.dr.meterreadings.domain.connector
 
-import kotlin.coroutines.RestrictsSuspension
-
 /**
  * Базовый интерфейс для всех провайдеров
  */
@@ -78,7 +76,8 @@ interface GetAccounts {
     ): Result<List<AccountInfo>>
 
     data class AccountInfo(
-        val accountNumber: String,
+        val number: String,
+        val uuid: String? = null,
         val address: String? = null,
         val regionId: String? = null,
         val login: String? = null,
@@ -97,8 +96,7 @@ interface SubmitReadings {
         accountNumber: String,
         value: String,
         valueNight: String? = null,
-        regionId: String? = null,
-        cacheData: Any? = null
+        regionId: String? = null
     ): Result<Unit>
 }
 
@@ -123,21 +121,24 @@ interface GetTransmissionPeriod {
 interface GetMeters {
     suspend fun getMeters(
         accountNumber: String,
-        regionId: String? = null
+        regionId: String? = null,
+        apiAccountId: String? = null
     ): Result<GetMetersResult>
 
     data class GetMetersResult(
         val meters: List<MeterInfo>,
-        val cacheData: Any? = null  // Опционально для кеша (например, KvcLocationDto)
     )
 
     data class MeterInfo(
         val id: String,
-        val type: String,
-        val serialNumber: String,
-        val lastValue: Int?,
-        val lastSubmissionDate: String?,
-        val apiCounterId: Int
+        val number: String,
+        val lastFirstValue: Int?,
+        val lastSecondValue: Int?,
+        val lastThirdValue: Int?,
+        val type: String?,
+        val verificationDate: String?,
+        val maxDiff: Int?,
+        val apiAccountId: String?, //api abonent uuid
     )
 }
 
@@ -152,8 +153,7 @@ interface ValidateReading {
     suspend fun getMinimumAllowedValue(
         counterId: String,
         accountNumber: String,
-        regionId: String?,
-        cacheData: Any? = null
+        regionId: String?
     ): Result<Int?>
 }
 
@@ -162,37 +162,32 @@ interface ValidateReading {
  */
 interface GetMeterHistory {
     /**
-     * История одного показания за месяц
-     */
-    data class MeterHistory(
-        /** Месяц (1-12) */
-        val month: Int,
-
-        /** Год (2025, 2026...) */
-        val year: Int,
-
-        /** Показание на конец месяца */
-        val value: Int,
-
-        /** Расход за месяц (разница) */
-        val consumption: Int
-    )
-
-    /**
      * Получить историю показаний счётчика
      *
-     * @param counterId ID счётчика в API провайдера
-     * @param accountNumber Номер лицевого счёта
+     * @param meterId ID счётчика в API провайдера
      * @param regionId ID региона (если требуется)
-     * @param cacheData Кешированные данные для оптимизации
      * @return Result со списком истории (от новых к старым)
      */
     suspend fun getMeterHistory(
-        counterId: String,
-        accountNumber: String,
-        regionId: String? = null,
-        cacheData: Any? = null
-    ): Result<List<MeterHistory>>
+        meterNumber: String? = null,
+        meterId: String? = null,
+        regionId: String? = null
+    ): Result<List<MeterHistoryInfo>>
+
+    data class MeterHistoryInfo(
+        /** Месяц (1-12) */
+        val month: Int,
+        /** Год (2025, 2026...) */
+        val year: Int,
+        val tariffs: List<TariffInfo>,
+    )
+
+    data class TariffInfo(
+        val indicationType: String,  // "Пик", "Ночь", "Общий", "T1", "T2"...
+        val lastValue: Int,
+        val prevValue: Int,
+        val consumption: Int
+    )
 }
 
 // ============================================

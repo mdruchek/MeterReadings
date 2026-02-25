@@ -221,31 +221,12 @@ class MeterReadingNotificationWorker @AssistedInject constructor(
     /**
      * Парсинг месяца из даты формата "dd.MM.yyyy"
      *
-     * @param date Дата в формате "15.01.2026"
+     * @param timestamp Дата в формате timestamp
      * @return Месяц в формате "yyyy-MM" или null при ошибке
      */
-    private fun parseMonthFromDate(date: String): String? {
-        return try {
-            // ✅ ИСПРАВЛЕНО: Поддержка обоих форматов
-            val parsedDate = when {
-                date.contains("T") -> {
-                    // ISO формат: "2026-01-15T10:30:00"
-                    SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault()).parse(date)
-                }
-                date.contains(".") -> {
-                    // Русский формат: "15.01.2026"
-                    SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).parse(date)
-                }
-                else -> null
-            }
-
-            parsedDate?.let {
-                SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(it)
-            }
-        } catch (e: Exception) {
-            println("⚠️ [NotificationWorker] Ошибка парсинга месяца из '$date': ${e.message}")
-            null
-        }
+    private fun parseMonthFromDate(timestamp: Long): String {
+        return SimpleDateFormat("yyyy-MM", Locale.getDefault())
+            .format(java.util.Date(timestamp))
     }
 
     companion object {

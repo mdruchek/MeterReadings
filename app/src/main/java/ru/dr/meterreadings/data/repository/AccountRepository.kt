@@ -69,48 +69,45 @@ class AccountRepository @Inject constructor(
         }
     }
 
-    /**
-     * Добавить новый account
-     * Возвращает ID созданного account
-     */
-    suspend fun addAccount(
-        profileId: String,
-        providerId: Long,
-        accountNumber: String,
-        regionId: String? = null,
-        login: String? = null,
-        password: String? = null
-    ): String {
-        println("💾 [AccountRepository] НАЧАЛО addAccount")
-        println("   profileId: $profileId")
-        println("   providerId: $providerId")
-        println("   accountNumber: $accountNumber")
-        println("   regionId: $regionId")
+    // ========================================
+    // ЗАПИСЬ (WRITE)
+    // ========================================
 
-        val exists = accountDao.exists(profileId, accountNumber)
+    /**
+     * Добавить новый аккаунт
+     *
+     * ✅ Принимает AccountDomainModel (из ViewModel)
+     * ✅ Проверяет дубликаты
+     * ✅ Сохраняет в БД
+     *
+     * @param account Domain модель аккаунта
+     * @return ID созданного аккаунта
+     */
+    suspend fun addAccount(account: AccountDomainModel): String {
+        println("💾 [AccountRepository] Добавление аккаунта")
+        println("   profileId: ${account.profileId}")
+        println("   providerId: ${account.providerId}")
+        println("   number: ${account.number}")
+        println("   uuid: ${account.uuid}")
+        println("   regionId: ${account.regionId}")
+        println("   login: ${account.login}")
+
+        // Проверка дубликатов
+        val exists = accountDao.exists(account.profileId, account.number)
         if (exists) {
-            throw IllegalArgumentException("Account with number $accountNumber already exists for this profile")
+            throw IllegalArgumentException(
+                "Аккаунт ${account.number} уже существует для этого профиля"
+            )
         }
 
-        val domainModel = AccountDomainModel(
-            id = UUID.randomUUID().toString(),
-            profileId = profileId,
-            providerId = providerId,
-            accountNumber = accountNumber,
-            regionId = regionId
-        )
+        // Преобразуем AccountDomainModel → AccountEntity
+        val entity = account.toEntity()
 
-        val entity = domainModel.toEntity(
-            login = login,
-            password = password,
-            createdAt = System.currentTimeMillis(),
-            updatedAt = System.currentTimeMillis()
-        )
-
+        // Сохраняем в БД
         accountDao.insert(entity)
-        println("✅ [Repository] Аккаунт добавлен в БД: ${entity.id}")
-        println("   regionId в БД: ${entity.regionId}")
-        return domainModel.id
+
+        println("✅ [AccountRepository] Аккаунт сохранён: ${entity.id}")
+        return entity.id
     }
 
     /**
@@ -131,6 +128,19 @@ class AccountRepository @Inject constructor(
         )
 
         accountDao.update(updated)
+    }
+
+    suspend fun updateAccount(model: AccountDomainModel) {
+        val existing = accountDao.getById(model.id).first()
+            ?: throw IllegalArgumentException("Аккаунт не найден")
+        val updated = model.toEntity(
+            login = existing.login,
+            password = existing.password,
+            createdAt = existing.createdAt,
+            updatedAt = System.currentTimeMillis()
+        )
+        accountDao.update(updated)
+        println("✅ [AccountRepository] Аккаунт обновлён: ${model.number}, uuid=${model.uuid}")
     }
 
     /**

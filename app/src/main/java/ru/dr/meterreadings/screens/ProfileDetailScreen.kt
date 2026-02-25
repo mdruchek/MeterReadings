@@ -25,6 +25,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import ru.dr.meterreadings.models.domain.AccountDomainModel
+import ru.dr.meterreadings.models.domain.toUiModel
 import ru.dr.meterreadings.models.ui.AuthError
 import ru.dr.meterreadings.ui.components.MeterReadingInput
 import ru.dr.meterreadings.viewmodels.ProfileDetailViewModel
@@ -313,9 +314,9 @@ fun ProfileDetailScreen(
                                         val isSubmitting = submittingMeters[account.id]?.contains(meter.id) == true
 
                                         MeterReadingInput(
-                                            meter = meter,
+                                            meter = meter.toUiModel(),
                                             onSubmit = { value ->
-                                                viewModel.submitReading(meter, value)
+                                                viewModel.submitReading(meter.toUiModel(), value)
                                             },
                                             isSubmitting = isSubmitting
                                         )
@@ -346,7 +347,7 @@ fun ProfileDetailScreen(
             title = { Text("Удалить лицевой счёт?") },
             text = {
                 Text(
-                    "Лицевой счёт № ${accountToDelete!!.accountNumber}\n" +
+                    "Лицевой счёт № ${accountToDelete!!.number}\n" +
                             "Провайдер ID: ${accountToDelete!!.providerId}\n\n" +
                             "Все данные этого счёта будут удалены. Это действие нельзя отменить."
                 )
@@ -563,7 +564,7 @@ fun ExpandableAccountCard(
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = "№ ${account.accountNumber}",
+                        text = "№ ${account.number}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                     )

@@ -36,10 +36,11 @@ fun Throwable.toUserFriendlyMessage(): String {
             "Не все обязательные поля заполнены"
 
         // Общие ошибки
-        message.contains("IllegalArgumentException", ignoreCase = true) ->
+        this is IllegalArgumentException ->
             "Некорректные данные"
-
-        message.contains("NullPointerException", ignoreCase = true) ->
+        this is IllegalStateException ->
+            "Некорректные данные"
+        this is NullPointerException ->
             "Отсутствуют необходимые данные"
 
         // Если уже человеческое сообщение
